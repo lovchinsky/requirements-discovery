@@ -1,0 +1,5 @@
+{
+  "retained_inputs": [
+    "node_modules/js-yaml/dist/js-yaml.mjs"
+  ]
+}

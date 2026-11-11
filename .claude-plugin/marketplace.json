@@ -1,0 +1,12 @@
+{
+  "name": "requirements-discovery",
+  "owner": { "name": "Serhiy Lovchinsky", "url": "https://github.com/lovchinsky" },
+  "metadata": { "description": "Marketplace for the requirements-discovery Claude Code plugin." },
+  "plugins": [
+    {
+      "name": "requirements-discovery",
+      "source": "./plugins/requirements-discovery",
+      "description": "Nonlinear requirements discovery and a compact Spec Kit handoff."
+    }
+  ]
+}

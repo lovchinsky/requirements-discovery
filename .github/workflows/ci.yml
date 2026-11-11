@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # The engines floor, then the latest release of each supported line.
+        node-version: ['22.11.0', 22, 24, 26]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=moderate
+      - run: npm run verify
+      - name: Committed bundles and build inventory must match a fresh build
+        run: test -z "$(git status --porcelain -- plugins/requirements-discovery/dist build)" || { git status --porcelain; git diff; exit 1; }

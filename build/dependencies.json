@@ -1,0 +1,220 @@
+{
+  "discovery": {
+    "packages": [
+      {
+        "name": "@argdown/core",
+        "version": "2.0.1",
+        "license": "MIT",
+        "notices": [
+          {
+            "file": "License",
+            "sha256": "ffd17910c13d453d8aade07c6f60b46488b8fca24de883c38882cbeb23a6df29"
+          }
+        ]
+      },
+      {
+        "name": "@chevrotain/gast",
+        "version": "11.2.0",
+        "license": "Apache-2.0",
+        "notices": [
+          {
+            "file": "LICENSE.txt",
+            "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+          }
+        ]
+      },
+      {
+        "name": "@chevrotain/regexp-to-ast",
+        "version": "11.2.0",
+        "license": "Apache-2.0",
+        "notices": [
+          {
+            "file": "LICENSE.txt",
+            "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+          }
+        ]
+      },
+      {
+        "name": "@chevrotain/utils",
+        "version": "11.2.0",
+        "license": "Apache-2.0",
+        "notices": [
+          {
+            "file": "LICENSE.txt",
+            "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+          }
+        ]
+      },
+      {
+        "name": "chevrotain",
+        "version": "11.2.0",
+        "license": "Apache-2.0",
+        "notices": [
+          {
+            "file": "LICENSE.txt",
+            "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+          }
+        ]
+      },
+      {
+        "name": "eventemitter3",
+        "version": "5.0.4",
+        "license": "MIT",
+        "notices": [
+          {
+            "file": "LICENSE",
+            "sha256": "3aecc12b1cb28832b5f65ab64291de96568c3f236a74d646281b4491f7bcadbf"
+          }
+        ]
+      },
+      {
+        "name": "js-yaml",
+        "version": "4.3.2",
+        "license": "MIT",
+        "notices": [
+          {
+            "file": "LICENSE",
+            "sha256": "a07bc24468b9654ce76a547d47a2db282d07733b715db4c73a98bd63961f9550"
+          }
+        ]
+      },
+      {
+        "name": "lodash-es",
+        "version": "4.18.1",
+        "license": "MIT",
+        "notices": [
+          {
+            "file": "LICENSE",
+            "sha256": "f71e8ed126b46346494aad5486874cd8f0aafe95092ed67d2e3cb6110f939abc"
+          }
+        ]
+      },
+      {
+        "name": "lodash.clonedeep",
+        "version": "4.5.0",
+        "license": "MIT",
+        "notices": [
+          {
+            "file": "LICENSE",
+            "sha256": "ffd8b33b354585f4ce119f19c53728281e48a97b074491eb6bf6d5c5ff305272"
+          }
+        ]
+      },
+      {
+        "name": "lodash.deburr",
+        "version": "4.1.0",
+        "license": "MIT",
+        "notices": [
+          {
+            "file": "LICENSE",
+            "sha256": "ffd8b33b354585f4ce119f19c53728281e48a97b074491eb6bf6d5c5ff305272"
+          }
+        ]
+      },
+      {
+        "name": "lodash.defaultsdeep",
+        "version": "4.6.1",
+        "license": "MIT",
+        "notices": [
+          {
+            "file": "LICENSE",
+            "sha256": "f71e8ed126b46346494aad5486874cd8f0aafe95092ed67d2e3cb6110f939abc"
+          }
+        ]
+      },
+      {
+        "name": "lodash.last",
+        "version": "3.0.0",
+        "license": "MIT",
+        "notices": [
+          {
+            "file": "LICENSE.txt",
+            "sha256": "2b61a34ef17beffb1e555efa8b46110d25398d47f2e88b2cacc46f8bd382c639"
+          }
+        ]
+      },
+      {
+        "name": "lodash.merge",
+        "version": "4.6.2",
+        "license": "MIT",
+        "notices": [
+          {
+            "file": "LICENSE",
+            "sha256": "f71e8ed126b46346494aad5486874cd8f0aafe95092ed67d2e3cb6110f939abc"
+          }
+        ]
+      },
+      {
+        "name": "lodash.partialright",
+        "version": "4.2.1",
+        "license": "MIT",
+        "notices": [
+          {
+            "file": "LICENSE",
+            "sha256": "ffd8b33b354585f4ce119f19c53728281e48a97b074491eb6bf6d5c5ff305272"
+          }
+        ]
+      },
+      {
+        "name": "lodash.union",
+        "version": "4.6.0",
+        "license": "MIT",
+        "notices": [
+          {
+            "file": "LICENSE",
+            "sha256": "ffd8b33b354585f4ce119f19c53728281e48a97b074491eb6bf6d5c5ff305272"
+          }
+        ]
+      },
+      {
+        "name": "mdurl",
+        "version": "2.1.0",
+        "license": "MIT",
+        "notices": [
+          {
+            "file": "LICENSE",
+            "sha256": "6b6a356c4337e2446841f30f3cdf7e7023af8c5260b5e347c0f987b9f6aa2644"
+          }
+        ]
+      },
+      {
+        "name": "punycode",
+        "version": "2.3.1",
+        "license": "MIT",
+        "notices": [
+          {
+            "file": "LICENSE-MIT.txt",
+            "sha256": "483acb265f182907d1caf6cff9c16c96f31325ed23792832cc5d8b12d5f88c8a"
+          }
+        ]
+      },
+      {
+        "name": "string-pixel-width",
+        "version": "1.11.0",
+        "license": "MIT",
+        "note": "The published package has no license file; its license text is taken from the upstream repository.",
+        "notices": [
+          {
+            "file": "https://github.com/adambisek/string-pixel-width/blob/a0ec4aef30357bc7ed541a4fdab3b5eca7d6b630/LICENSE.md",
+            "sha256": "c694b1edce6f0224d4193a5c642cb6e59862751fca9cce5d5efc4328f741090b"
+          }
+        ]
+      }
+    ]
+  },
+  "hook": {
+    "packages": [
+      {
+        "name": "js-yaml",
+        "version": "4.3.2",
+        "license": "MIT",
+        "notices": [
+          {
+            "file": "LICENSE",
+            "sha256": "a07bc24468b9654ce76a547d47a2db282d07733b715db4c73a98bd63961f9550"
+          }
+        ]
+      }
+    ]
+  }
+}

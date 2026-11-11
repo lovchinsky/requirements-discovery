@@ -1,0 +1,49 @@
+===
+{
+  "discovery": {
+    "schema": 2,
+    "id": "RD-resource-workflow",
+    "title": "Resource workflow",
+    "intent": "Define resource navigation within the access contract.",
+    "scope": ["Primary navigation", "Workspace context", "Access boundaries"],
+    "status": "active",
+    "root": "I-001",
+    "focus": "I-014",
+    "revision": 1,
+    "created_at": "2026-10-05T00:00:00Z",
+    "updated_at": "2026-10-05T00:00:00Z"
+  }
+}
+===
+
+# Resource workflow — synthetic test fixture
+
+[I-001]: How should the resource workflow work within the existing access model? #issue { "status": "open", "parent": null }
+
+## Navigation
+
+[I-010]: What defines primary navigation? #issue { "status": "resolved", "parent": "I-001", "resolved_by": "D-006", "resolution_history": ["D-006"] }
+
+[P-010A]: Workspaces define the root navigation hierarchy. #position { "status": "rejected", "issue": "I-010", "rejection_reason": "Cross-workspace work and a large workspace count make the hierarchy inefficient." }
+
+[P-010B]: Operational areas define navigation; workspace is a context switcher. #position { "status": "accepted", "issue": "I-010" }
+    + [E-021]
+    + [C-008]
+    + [C-012]
+    + <A-004>
+
+[E-021]: Users perform workflows that span workspaces. #evidence { "status": "verified", "issue": "I-010", "sources": [{ "kind": "user", "ref": "Fixture scenario: daily cross-workspace user work", "authority": "intent" }], "handoff": "existing" }
+
+[C-008]: The navigation must remain usable with thirty workspaces. #constraint { "status": "agreed", "sources": [{ "kind": "user", "ref": "Fixture scale envelope: thirty workspaces", "authority": "intent" }], "handoff": "invariant" }
+
+[C-012]: Navigation must never imply access to workspaces the user is not assigned to. #constraint { "status": "verified", "issue": "I-010", "sources": [{ "kind": "spec", "ref": "specs/access.md", "authority": "normative", "locator": "Fixture staff-access contract" }], "handoff": "invariant" }
+
+<A-004>: A workspace hierarchy adds repeated navigation for cross-workspace work; a context switcher retains workspace awareness. #argument { "status": "active", "issue": "I-010", "based_on": ["E-021", "C-008"] }
+
+[D-006]: Use operations-first navigation and retain persistent, explicit workspace context alongside operational navigation. #decision { "status": "accepted", "resolves": ["I-010"], "basis": "user", "selected": ["P-010B"], "alternatives": ["P-010A"], "based_on": ["E-021", "C-008", "C-012", "A-004"], "rationale": "This supports cross-workspace workflows and the stated scale while retaining workspace awareness. Role-derived access remains authoritative.", "sources": [{ "kind": "user", "ref": "Fixture agreement: operations-first navigation with a persistent workspace context switcher", "authority": "intent" }] }
+
+[Q-001]: Cross-workspace workflows need an explicit way to show their scope. #consequence { "status": "current", "derives_from": "D-006", "handoff": "target" }
+
+## Open design detail
+
+[I-014]: What visual treatment identifies the current workspace context? #issue { "status": "deferred", "parent": "I-010", "blocking": false, "nonblocking_reason": "The behavior and authorization semantics are settled; visual styling can be chosen during interaction design without selecting a different scope model." }

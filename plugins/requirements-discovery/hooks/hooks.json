@@ -1,0 +1,16 @@
+{
+  "description": "Point to saved discovery behavior and state at session boundaries; never inject context on user prompts.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/dist/hook.cjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

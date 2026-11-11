@@ -1,0 +1,19 @@
+{
+  "name": "requirements-discovery",
+  "version": "1.0.0",
+  "description": "Requirements Engineering in a natural, nonlinear conversation, with IBIS branching, durable design rationale and a Spec Kit handoff.",
+  "author": {
+    "name": "Serhiy Lovchinsky",
+    "url": "https://github.com/lovchinsky"
+  },
+  "homepage": "https://github.com/lovchinsky/requirements-discovery",
+  "repository": "https://github.com/lovchinsky/requirements-discovery",
+  "license": "MIT",
+  "keywords": [
+    "requirements-engineering",
+    "ibis",
+    "design-rationale",
+    "argdown",
+    "spec-kit"
+  ]
+}

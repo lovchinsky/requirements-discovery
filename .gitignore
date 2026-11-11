@@ -1,0 +1,9 @@
+node_modules/
+.requirements/
+*.log
+
+# IDEs, editors, OS metadata and local Claude Code settings
+.DS_Store
+.vscode/
+.idea/
+.claude/settings.local.json
