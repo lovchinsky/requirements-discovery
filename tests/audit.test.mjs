@@ -24,7 +24,7 @@ function finding(input, { check = 'consistency', id = 'AUD-1' } = {}) {
     note: 'The synthetic draft claims navigation overrides assignments.', correction: 'Compare the actual authorization scope and remove unsupported claims.' });
 }
 
-test('explicit requested audit without report is blocked and ordinary reviewed handoff remains compatible', t => {
+test('explicit requested audit without report is blocked, and an ordinary reviewed handoff needs no audit', t => {
   const dir = seed(t), graph = readGraph(dir), input = draft(graph);
   input.audit_requested = true;
   const result = publishHandoff(dir, graph.hash, input);

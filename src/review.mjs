@@ -24,7 +24,7 @@ export function reviewBlockers(graph, sources, body, review) {
 // A local file source with a recorded sha256 is a snapshot of that file's exact bytes.
 const isSnapshot = source => Boolean(source?.sha256) && source.kind !== 'user' && !/^https?:/i.test(source.ref);
 
-// Returns why a snapshot source no longer matches its file, or null when it matches.
+// Returns why a snapshot source does not match its file, or null when it matches.
 function snapshotMismatch(project, source) {
   try {
     const file = path.resolve(project, source.ref);

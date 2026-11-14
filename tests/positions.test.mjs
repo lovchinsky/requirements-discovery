@@ -61,7 +61,7 @@ test('challenging and reaffirming a Decision reconciles its Positions without ne
   assert.equal(readGraph(dir).nodes.get('P-010B').data.status, 'accepted');
 });
 
-test('withdrawn decisions no longer imply current acceptance', t => {
+test('a withdrawn decision does not keep its selected positions accepted', t => {
   const dir = seed(t), g = readGraph(dir);
   patchGraph(dir, g.hash, { update: [{ id: 'D-006', data: { status: 'withdrawn' } }, { id: 'I-010', data: { status: 'open' }, unset: ['resolved_by'] }, { id: 'Q-001', data: { status: 'superseded' } }] });
   assert.equal(readGraph(dir).nodes.get('P-010B').data.status, 'proposed');

@@ -202,7 +202,7 @@ test('the review inventory covers the sources of every node shown with its text'
   assert.equal(publishHandoff(dir, readGraph(dir).hash, input).status, 'blocked');
 });
 
-test('labels exist for en and uk only; any other language is refused rather than silently replaced', t => {
+test('labels exist for en and uk; another language is refused with the supported list', t => {
   const graph = parseGraph(discoveryFixture);
   for (const language of ['fr', 'ua', 'zz-Fake']) assert.throws(() => draftHandoff(graph, { language, conclusions: FIXTURE_CONCLUSIONS }), e => e.code === 'INPUT' && /supported label language: en, uk/.test(e.message), language);
   const dir = seed(t), input = { ...draft(readGraph(dir)), language: 'uk' };

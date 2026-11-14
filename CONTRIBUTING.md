@@ -25,7 +25,7 @@ claude --plugin-dir /absolute/path/to/your/clone/plugins/requirements-discovery
 - **Write each Markdown paragraph and list item on one line.** Editors and GitHub wrap it; hard wraps make diffs noisy and split phrases that tests search for.
 - **Keep the boundary.** Discovery records reasoning; formal requirements, stories and acceptance criteria belong to Spec Kit.
 - **Avoid new runtime dependencies.** They are bundled into `dist/` together with their licenses, and `npm run check` verifies the embedded notices. A package published without a license file needs its upstream license in `licenses/` and an entry in `scripts/bundled-licenses.mjs` for that exact version.
-- **The `lodash-es` override** in `package.json` replaces the version pinned by `chevrotain` 11 (a dependency of `@argdown/core`) with a release that fixes known advisories. Remove it once `@argdown/core` depends on `chevrotain` 12 or later, which no longer uses lodash.
+- **The `lodash-es` override** in `package.json` replaces the version pinned by `chevrotain` 11 (a dependency of `@argdown/core`) with a release that fixes known advisories. Remove it once `@argdown/core` depends on `chevrotain` 12 or later, which does not use lodash.
 
 ## Releases
 

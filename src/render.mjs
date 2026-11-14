@@ -21,14 +21,14 @@ function indexGraph(graph) {
   for (const r of graph.relations) { push('out', r.from, r); push('into', r.to, r); }
   for (const n of nodes.values()) {
     if (['position', 'argument'].includes(n.kind)) push('attached', n.data.issue, n.id);
-    if (n.kind === 'issue') { push('children', n.data.parent, n.id); push('answers', n.data.resolved_by, n.id); for (const r of ids(n.data.resolution_history)) push('formerlyAnswers', r, n.id); }
+    if (n.kind === 'issue') { push('children', n.data.parent, n.id); push('answers', n.data.resolved_by, n.id); for (const r of ids(n.data.resolution_history)) push('inResolutionHistory', r, n.id); }
     if (n.kind === 'review') push('reviews', n.data.decision, n.id);
     if (n.kind === 'consequence') push('effects', n.data.derives_from, n.id);
     for (const dep of new Set(requires(n))) push('requirers', dep, n.id);
   }
   const get = name => key => maps[name]?.get(key) ?? [];
   const out = get('out'), into = get('into');
-  return { order, out, into, operative: operativeClosure(graph).reachable, attached: get('attached'), children: get('children'), answers: get('answers'), formerlyAnswers: get('formerlyAnswers'),
+  return { order, out, into, operative: operativeClosure(graph).reachable, attached: get('attached'), children: get('children'), answers: get('answers'), inResolutionHistory: get('inResolutionHistory'),
     reviews: get('reviews'), effects: get('effects'), requirers: get('requirers'),
     partners: id => [...out(id).map(r => r.to), ...into(id).map(r => r.from)],
     byOrder: list => [...new Set(list)].sort((a, b) => order.get(a) - order.get(b)) };
@@ -70,7 +70,7 @@ function classify(graph, ix, folded = new Set()) {
     const n = nodes.get(id);
     if (n.kind === 'decision' && ids(n.data.reaffirmed_by).length) for (const x of [id, ...ids(n.data.selected)]) reaffirmedBy.set(x, id);
   }
-  // Retained: what the operative state still relies on although it is no longer current itself.
+  // Retained: what the operative state relies on although it is not current itself.
   const retained = new Set([...ix.operative].filter(id => !current.has(id) && !folded.has(id)));
   const shown = id => current.has(id) || retained.has(id), history = new Map(), recordOf = id => shown(id) ? id : history.get(id)?.target;
   const assign = (id, target, role) => nodes.has(id) && target && !shown(id) && !folded.has(id) && !history.has(id) && Boolean(history.set(id, { target, role }));
@@ -111,7 +111,7 @@ function treeOf(graph, cls) {
 function anchorer(graph, ix, cls, tree) {
   const { nodes, meta } = graph, memo = new Map();
   const next = n => [n.data.issue, n.kind === 'decision' ? ids(n.data.resolves)[0] : undefined, n.kind === 'review' ? n.data.decision : undefined, n.data.derives_from,
-    ix.answers(n.id)[0], ix.formerlyAnswers(n.id)[0], ix.partners(n.id)[0]].find(id => id && nodes.has(id));
+    ix.answers(n.id)[0], ix.inResolutionHistory(n.id)[0], ix.partners(n.id)[0]].find(id => id && nodes.has(id));
   return id => {
     const trail = [], seen = new Set();
     let cursor = id, result;

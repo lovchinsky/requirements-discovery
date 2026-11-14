@@ -67,7 +67,7 @@ Factual questions are closed by verified Evidence or a verified Constraint. Prod
 
 ### Handoff
 
-The helper renders `handoff.md` from the graph rather than having Claude rewrite it. Current questions, decisions, chosen options, arguments, facts, constraints and assumptions appear verbatim with their IDs; earlier versions are listed by ID beside the current one. Branches that were not chosen (options you explored and left, or never explored because another one settled the question) are folded into short conclusions that Claude writes at handoff time and that list the folded node IDs. Every graph ID stays referenced, so a decision number in the handoff always leads back to its full reasoning in `current.argdown`. A retired node that the current state still relies on is shown with its text, because it blocks readiness. Labels are rendered in English or Ukrainian. Because nothing is paraphrased, a large discovery produces a long handoff.
+The helper renders `handoff.md` from the graph, so its text is the graph's own wording. Current questions, decisions, chosen options, arguments, facts, constraints and assumptions appear verbatim with their IDs; earlier versions are listed by ID beside the current one. Branches that were not chosen (options you explored and left, or never explored because another one settled the question) are folded into short conclusions that Claude writes at handoff time and that list the folded node IDs. Every graph ID stays referenced, so a decision number in the handoff always leads back to its full reasoning in `current.argdown`. A retired node that the current state still relies on is shown with its text, because it blocks readiness. Labels are rendered in English or Ukrainian. Because nothing is paraphrased, a large discovery produces a long handoff.
 
 The handoff gets a semantic review of consistency, source authority, coverage, decision quality and readiness. Unresolved blockers leave it a draft marked `blocked`. A `ready` handoff is bound to the exact graph, text, review and recorded local source hashes; changing any of them makes it stale.
 
@@ -87,7 +87,7 @@ specs or code instead of silently changing the settled intent.
 | --- | --- |
 | `.requirements/current.argdown` | Questions, alternatives, facts, constraints, assumptions, arguments, decisions and consequences |
 | `.requirements/handoff.md` | The specification input, rendered from the graph as plain Markdown |
-| `.requirements/handoff.json` | Status, hashes, coverage, branch conclusions, blockers and review metadata |
+| `.requirements/handoff.json` | Status, hashes, renderer version, language, branch conclusions, blockers and review metadata |
 | `.requirements/archive/` | Preserved state from `new` and from recovery of damaged state |
 
 `handoff.md` and `handoff.json` form one publication; `handoff-status` checks that they match each other and the graph, and reports whether the graph and recorded conclusions still render the same Markdown. All files are plain text: commit `.requirements/` to share the rationale with your team, or add it to `.gitignore`.

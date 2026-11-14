@@ -55,7 +55,7 @@ export function atomicWrite(file, text) {
 
 // Every consumer reads the publication once, through its state: absent (no metadata),
 // unreadable, unsealed (not schema 2/3 or a broken seal), foreign (another discovery) or sealed.
-// Schema 2 is a prose publication of earlier versions; schema 3 is rendered from the graph.
+// Schema 3 bodies are rendered from the graph with recorded render inputs; schema 2 bodies are prose without them.
 export function readPublication(project, graph) {
   const p = locations(project), markdown = fs.existsSync(p.handoff);
   if (!fs.existsSync(p.handoffJson)) return { state: 'absent', markdown };
