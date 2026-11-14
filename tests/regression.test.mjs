@@ -29,7 +29,7 @@ test('factual closure neither invents a decision nor makes handoff ready', t => 
   const dir = seed(t, factual), g = readGraph(dir), p = projectGraph(g);
   assert.equal(p.factual_answers.length, 1); assert.equal(p.readiness, 'blocked');
   assert.equal(p.settled.some(n => n.kind === 'decision'), false);
-  const result = publishHandoff(dir,g.hash,draft(p));
+  const result = publishHandoff(dir,g.hash,draft(g,[]));
   assert.equal(result.status,'blocked'); assert.equal(readGraph(dir).meta.status,'active');
 });
 
@@ -133,15 +133,15 @@ test('native attack, undercut and contradiction survive canonical patches withou
 });
 
 test('semantic publication: IDs alone produce a blocked draft and do not close discovery', t => {
-  const dir = seed(t), g = readGraph(dir), input = draft(projectGraph(g)); delete input.review;
+  const dir = seed(t), g = readGraph(dir), input = draft(g); delete input.review;
   assert.equal(projectGraph(g).readiness,'ready'); assert.equal(publishHandoff(dir,g.hash,input).status,'blocked');
   assert.equal(readGraph(dir).meta.status,'active'); assert.equal(readHandoff(dir,g).reviewed,false);
 });
 
 test('semantic review is bound to both files and exposes blocked findings and unavailable sources', t => {
-  const dir = seed(t), g = readGraph(dir), input = draft(projectGraph(g));
+  const dir = seed(t), g = readGraph(dir), input = draft(g);
   const preview = previewHandoff(dir,input); assert.equal(preview.review.checks[0].result,'unchecked');
-  const changed = structuredClone(input); changed.body += 'Unsupported changed prose.\n';
+  const changed = structuredClone(input); changed.conclusions[0].text += ' An unsupported changed conclusion.';
   assert.throws(() => publishHandoff(dir,g.hash,changed),e => e.code === 'REVIEW');
   input.review.checks[0] = {check:'consistency',result:'blocked',note:'The proposed text introduces a new guarantee.'};
   assert.equal(publishHandoff(dir,g.hash,input).status,'blocked');
@@ -152,14 +152,14 @@ test('semantic review is bound to both files and exposes blocked findings and un
 test('a changed local source snapshot blocks publication even if the review claims pass', t => {
   const dir = seed(t), source = path.join(dir,'current-spec.md'); fs.writeFileSync(source,'Original contract.\n');
   let text = editNode(discoveryFixture,'C-012',{sources:[{kind:'spec',ref:'current-spec.md',authority:'normative',sha256:sha256(fs.readFileSync(source))}]});
-  fs.writeFileSync(locations(dir).graph,text); const g = readGraph(dir), input = draft(projectGraph(g));
+  fs.writeFileSync(locations(dir).graph,text); const g = readGraph(dir), input = draft(g);
   fs.writeFileSync(source,'Changed contract.\n');
   assert.ok(previewHandoff(dir,input).blockers.some(b => b.reason.includes('snapshot changed')));
   assert.equal(publishHandoff(dir,g.hash,input).status,'blocked');
 });
 
 test('handoff metadata edits are stale even when graph and body bytes are unchanged', t => {
-  const dir = seed(t), g = readGraph(dir); publishHandoff(dir,g.hash,draft(projectGraph(g)));
+  const dir = seed(t), g = readGraph(dir); publishHandoff(dir,g.hash,draft(g));
   const file = locations(dir).handoffJson; fs.writeFileSync(file,fs.readFileSync(file,'utf8').replace('"status": "ready"','"status": "blocked"'));
   assert.equal(readHandoff(dir,readGraph(dir)).fresh,false);
 });
@@ -190,7 +190,7 @@ test('an unchanged choice review does not reinstate old selected-option source s
   patchGraph(dir,g.hash,{add:[{id:'V-NEW',kind:'review',text:'The unchanged choice follows the current user scope.',data:{status:'confirmed',decision:'D-006',based_on:['C-008','C-012'],rationale:'Current user intent and contracts suffice; the former operational context is no longer a necessary premise.'}}],update:[{id:'D-006',data:{reaffirmed_by:['V-NEW']}},{id:'E-021',data:{status:'stale'}}]});
   fs.writeFileSync(local,'Obsolete changed context.'); g=readGraph(dir); const p=projectGraph(g);
   assert.equal(p.readiness,'ready'); assert.ok(!p.sources.some(s => s.ref === 'old-context.md'));
-  assert.equal(publishHandoff(dir,g.hash,draft(p)).status,'ready');
+  assert.equal(publishHandoff(dir,g.hash,draft(g)).status,'ready');
 });
 
 test('session bootstrap is independent of graph body and never certifies its validity', t => {
@@ -242,16 +242,16 @@ test('custom tags with spaces survive patches and Position reconciliation', t =>
 });
 
 test('a damaged or unsealed publication keeps a recorded audit request', t => {
-  const dir = seed(t), p = locations(dir), graph = readGraph(dir), { body, covers } = draft(projectGraph(graph));
-  assert.equal(publishHandoff(dir, graph.hash, { body, covers, audit_requested: true }).status, 'blocked');
-  assert.equal(previewHandoff(dir, { body, covers }).audit_requested, true);
+  const dir = seed(t), p = locations(dir), graph = readGraph(dir), { conclusions } = draft(graph);
+  assert.equal(publishHandoff(dir, graph.hash, { conclusions, audit_requested: true }).status, 'blocked');
+  assert.equal(previewHandoff(dir, { conclusions }).audit_requested, true);
   fs.writeFileSync(p.handoffJson, fs.readFileSync(p.handoffJson, 'utf8').replace('"audit_requested": true', '"audit_requested": false'));
-  assert.equal(previewHandoff(dir, { body, covers }).audit_requested, true);
+  assert.equal(previewHandoff(dir, { conclusions }).audit_requested, true);
   fs.writeFileSync(p.handoffJson, '{');
-  assert.equal(previewHandoff(dir, { body, covers }).audit_requested, true);
-  assert.equal(previewHandoff(dir, { body, covers, audit_requested: false }).audit_requested, false);
+  assert.equal(previewHandoff(dir, { conclusions }).audit_requested, true);
+  assert.equal(previewHandoff(dir, { conclusions, audit_requested: false }).audit_requested, false);
   fs.rmSync(p.handoffJson); fs.rmSync(p.handoff);
-  assert.equal(previewHandoff(dir, { body, covers }).audit_requested, false);
+  assert.equal(previewHandoff(dir, { conclusions }).audit_requested, false);
 });
 
 test('a snapshot source must match its file when it is recorded', t => {
@@ -269,7 +269,7 @@ test('a snapshot source must match its file when it is recorded', t => {
 
 test('an interrupted archive keeps the graph, so it can be archived again', t => {
   const dir = seed(t), p = locations(dir);
-  publishHandoff(dir, readGraph(dir).hash, draft(projectGraph(readGraph(dir))));
+  publishHandoff(dir, readGraph(dir).hash, draft(readGraph(dir)));
   const unlink = fs.unlinkSync;
   const mock = t.mock.method(fs, 'unlinkSync', file => {
     if (file === p.handoff) throw Object.assign(new Error('Simulated failure'), { code: 'EIO' });
@@ -282,10 +282,12 @@ test('an interrupted archive keeps the graph, so it can be archived again', t =>
   assert.deepEqual(fs.readdirSync(p.state), ['archive']);
 });
 
-test('readiness gates: visible coverage markers and no patch into handed-off', t => {
-  const dir = seed(t), graph = readGraph(dir), { covers } = draft(projectGraph(graph));
-  assert.throws(() => previewHandoff(dir, { body: '# Input without markers', covers }), e => e.code === 'COVERAGE');
-  assert.throws(() => publishHandoff(dir, graph.hash, { body: '# Input without markers', covers }), e => e.code === 'COVERAGE');
+test('readiness gates: rendered bodies, concluded branches and no patch into handed-off', t => {
+  const dir = seed(t), graph = readGraph(dir);
+  assert.throws(() => previewHandoff(dir, { body: '# Hand-written input', covers: ['I-001'] }), e => e.code === 'INPUT');
+  const preview = previewHandoff(dir, {});
+  assert.equal(preview.concluded, false); assert.deepEqual(preview.branches.unconcluded.map(g => [g.issue, g.nodes.map(n => n.id)]), [['I-010', ['P-010A']]]);
+  assert.throws(() => publishHandoff(dir, graph.hash, {}), e => e.code === 'COVERAGE');
   assert.throws(() => patchGraph(dir, graph.hash, { meta: { status: 'handed-off' } }), e => e.code === 'LIFECYCLE');
 });
 
@@ -295,7 +297,7 @@ test('handoff-status reports a recorded source that changed after publication', 
   fs.writeFileSync(spec, 'Access contract.\n');
   patchGraph(dir, readGraph(dir).hash, { add: [{ id: 'E-800', kind: 'evidence', text: 'The contract states access.',
     data: { status: 'verified', handoff: 'existing', sources: [{ kind: 'spec', ref: 'specs/access.md', authority: 'normative', sha256: sha256(fs.readFileSync(spec)) }] } }] });
-  assert.equal(publishHandoff(dir, readGraph(dir).hash, draft(projectGraph(readGraph(dir)))).status, 'ready');
+  assert.equal(publishHandoff(dir, readGraph(dir).hash, draft(readGraph(dir))).status, 'ready');
   const handoffStatus = () => spawnSync(process.execPath, [path.join(ROOT, 'src', 'cli-entry.mjs'), 'handoff-status', '--project', dir], { encoding: 'utf8' });
   assert.equal(handoffStatus().status, 0);
   fs.appendFileSync(spec, 'A changed rule.\n');

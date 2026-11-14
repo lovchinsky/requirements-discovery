@@ -1,7 +1,6 @@
 import { DiscoveryError, projectGraph, viewGraph, sha256 } from './graph.mjs';
-import { findProject, readGraph, readHandoff, readBytes, locations, stdinText } from './storage.mjs';
-import { initDiscovery, applyGraph, patchGraph, reconcilePositionState, setLifecycle, status, archiveDiscovery, repairGraph, previewHandoff, prepareAudit, publishHandoff } from './operations.mjs';
-import { sourceSnapshotBlockers } from './review.mjs';
+import { findProject, readGraph, readBytes, locations, stdinText } from './storage.mjs';
+import { initDiscovery, applyGraph, patchGraph, reconcilePositionState, setLifecycle, status, archiveDiscovery, repairGraph, renderDraft, previewHandoff, prepareAudit, publishHandoff, handoffStatus } from './operations.mjs';
 
 export const HELP = `Requirements Discovery local helper
 
@@ -12,8 +11,11 @@ Read-only commands:
   check           Official Argdown parsing and semantic integrity checks
   project         Current specification-input projection as JSON
   view            Bounded neighborhood; --ids I-001,D-006 --depth 0|1|2|3
-  handoff-preview stdin JSON {body, covers, audit_requested?}; unfilled review
-  handoff-status  Verify the handoff is ready and matches current files
+  render          stdin JSON {language?, conclusions?}; prints handoff Markdown;
+                  optional --expect refuses a graph changed since the preview
+  handoff-preview stdin JSON {language?, conclusions?, audit_requested?}; hashes,
+                  branches still without a conclusion, unfilled review
+  handoff-status  Verify the handoff is ready, current and reproducible from the graph
   hash            Hash raw graph bytes (for repairing an invalid graph)
 
 Write commands (no API calls or conversation processing):
@@ -22,9 +24,9 @@ Write commands (no API calls or conversation processing):
   patch           --expect required; stdin JSON: {meta?, add?, update?, relations?}
   positions-reconcile --expect raw hash; repair only Position state, backup first
   lifecycle       --expect required; --status active|paused
-  audit-prepare   --expect required; stdin JSON {body, covers}; graph/draft snapshots
-  handoff         --expect required; stdin JSON: {body, covers, review?, audit_requested?}
-                  Writes handoff.md prose and handoff.json publication metadata
+  audit-prepare   --expect required; stdin JSON {language?, conclusions?}; graph/draft snapshots
+  handoff         --expect required; stdin JSON: {language?, conclusions?, review?, audit_requested?}
+                  Renders handoff.md from the graph and writes handoff.json metadata
   archive         --expect required; preserve current files before new discovery
   repair          --expect required; stdin: repaired Argdown; preserves damaged bytes
 
@@ -33,6 +35,9 @@ Exit 0: success. Exit 1: invalid state, conflict or unready handoff-status.
 `;
 
 export const OPTIONS = ['--project', '--expect', '--status', '--ids', '--depth'];
+
+// Commands that print Markdown rather than JSON.
+export const MARKDOWN = new Set(['render']);
 
 // The single list of commands; tests and documentation checks are derived from it.
 export const COMMANDS = {
@@ -47,14 +52,13 @@ export const COMMANDS = {
     return { valid: true, graph_sha256: graph.hash, nodes: graph.nodes.size, relations: graph.relations.length };
   },
   project: c => projectGraph(readGraph(c.project)),
+  render: async c => renderDraft(c.project, c.expected, await c.json()),
   view: c => viewGraph(readGraph(c.project), c.options['--ids']?.split(','), c.options['--depth'] === undefined ? 1 : Number(c.options['--depth'])),
   'handoff-preview': async c => previewHandoff(c.project, await c.json()),
   'audit-prepare': async c => prepareAudit(c.project, c.expected, await c.json()),
   handoff: async c => publishHandoff(c.project, c.expected, await c.json()),
   'handoff-status': c => {
-    const graph = readGraph(c.project), result = readHandoff(c.project, graph), projection = projectGraph(graph);
-    result.source_blockers = sourceSnapshotBlockers(c.project, projection);
-    result.ready = result.fresh && result.reviewed && result.status === 'ready' && graph.meta.status === 'handed-off' && projection.readiness === 'ready' && !result.source_blockers.length;
+    const result = handoffStatus(c.project);
     if (!result.ready) process.exitCode = 1;
     return result;
   },
@@ -81,7 +85,7 @@ export async function main(argv = process.argv.slice(2)) {
   };
   const project = findProject(process.cwd(), options['--project'] ?? process.env.CLAUDE_PROJECT_DIR);
   const result = await COMMANDS[command]({ project, expected: options['--expect'], options, json });
-  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  process.stdout.write(MARKDOWN.has(command) ? result : `${JSON.stringify(result, null, 2)}\n`);
 }
 
 export function report(error) {

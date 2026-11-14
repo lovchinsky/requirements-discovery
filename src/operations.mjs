@@ -4,9 +4,10 @@ import { randomUUID } from 'node:crypto';
 import { DiscoveryError, parseGraph, serializeGraph, projectGraph, graphSummary, updateMeta, validateTransition, validateMetadataTransition, sha256, isObject, canonical, argdownJson } from './graph.mjs';
 import { reconcilePositions } from './positions.mjs';
 import { patchCandidate } from './patch.mjs';
-import { handoffBody, checkCoverage, reviewTemplate, reviewBlockers, sourceSnapshotBlockers, newSnapshotErrors } from './review.mjs';
+import { reviewTemplate, reviewBlockers, sourceSnapshotBlockers, newSnapshotErrors } from './review.mjs';
+import { draftHandoff, blockedBanner } from './render.mjs';
 import { auditRequested, auditTemplate, assessAudit } from './audit.mjs';
-import { locations, readGraph, readHandoff, readAuditState, expectGraph, withLock, atomicWrite, readBytes, decodeText, ensureDirectory, frontMatterHeader } from './storage.mjs';
+import { locations, readGraph, readHandoff, readAuditState, readPreviousInputs, readPublicationState, expectGraph, withLock, atomicWrite, readBytes, decodeText, ensureDirectory, frontMatterHeader } from './storage.mjs';
 
 const now = () => new Date().toISOString();
 const textValue = (v, field) => {
@@ -173,27 +174,38 @@ export function repairGraph(project, expected, text) {
   });
 }
 
+// Read-only: the handoff Markdown for these conclusions, marking branches still without one.
+// With the preview's graph hash it refuses a graph that changed, so the reviewed text is the hashed one.
+export function renderDraft(project, expected, input) {
+  const graph = readGraph(project);
+  if (expected !== undefined && graph.hash !== expected) throw new DiscoveryError('CONFLICT', 'The graph changed after the preview. Run handoff-preview again and review the new draft.', [{ expected, actual: graph.hash }]);
+  return draftHandoff(graph, input, { strict: false }).body;
+}
+
 export function previewHandoff(project, input) {
-  const current = readGraph(project), projection = projectGraph(current), body = handoffBody(input);
+  const current = readGraph(project), projection = projectGraph(current);
   assertHandoffAllowed(current);
-  checkCoverage(current, projection, input, body);
+  const draft = draftHandoff(current, input, { strict: false }), body = draft.body;
   const bodyHash = sha256(body), previousAudit = readAuditState(project, current, bodyHash);
-  const requested = auditRequested(input, previousAudit.requested) || previousAudit.report !== undefined, review = reviewTemplate(current, projection, body);
+  const requested = auditRequested(input, previousAudit.requested) || previousAudit.report !== undefined, review = reviewTemplate(current, draft.sources, body);
   if (requested) review.independent_audit = auditTemplate(current, bodyHash);
-  return { graph_sha256: current.hash, mechanical_readiness: projection.readiness, blockers: [...projection.blockers, ...sourceSnapshotBlockers(project, projection)], body_sha256: bodyHash, audit_requested: requested, review };
+  const previous = readPreviousInputs(project, current);
+  return { graph_sha256: current.hash, mechanical_readiness: projection.readiness, blockers: [...projection.blockers, ...sourceSnapshotBlockers(project, current.meta.root, draft.sources)],
+    body_sha256: bodyHash, concluded: !draft.uncovered.length, language: draft.language, renderer: draft.renderer,
+    branches: { unconcluded: draft.uncovered, fold_candidates: draft.fold_candidates }, ...(previous ? { previous } : {}),
+    audit_requested: requested, review };
 }
 
 export function prepareAudit(project, expected, input) {
-  const body = handoffBody(input);
   return withLock(project, p => {
-    const current = expectGraph(project, expected), projection = projectGraph(current);
+    const current = expectGraph(project, expected);
     assertHandoffAllowed(current);
-    checkCoverage(current, projection, input, body);
+    const { body, language, conclusions, sources } = draftHandoff(current, input);
     const directory = path.join(p.state, `.audit-${randomUUID()}`);
     fs.mkdirSync(directory, { mode: 0o700 });
     const manifest = { schema: 1, created_at: now(), project: p.root,
-      graph_sha256: current.hash, body_sha256: sha256(body), graph_file: 'graph.argdown', draft_file: 'draft.md',
-      scope: current.meta.scope ?? [], sources: projection.sources, audit_template: auditTemplate(current, sha256(body)) };
+      graph_sha256: current.hash, body_sha256: sha256(body), graph_file: 'graph.argdown', draft_file: 'draft.md', language, conclusions,
+      scope: current.meta.scope ?? [], sources, audit_template: auditTemplate(current, sha256(body)) };
     try {
       atomicWrite(path.join(directory, 'graph.argdown'), current.text);
       atomicWrite(path.join(directory, 'draft.md'), body);
@@ -204,12 +216,10 @@ export function prepareAudit(project, expected, input) {
 }
 
 export function publishHandoff(project, expected, input) {
-  const body = handoffBody(input);
   return withLock(project, p => {
     const current = expectGraph(project, expected);
     assertHandoffAllowed(current);
-    const projection = projectGraph(current);
-    checkCoverage(current, projection, input, body);
+    const projection = projectGraph(current), { body, language, conclusions, sources, renderer } = draftHandoff(current, input);
     const bodyHash = sha256(body), previousAudit = readAuditState(project, current, bodyHash);
     let review = input.review;
     if (previousAudit.report !== undefined && review?.independent_audit === undefined) {
@@ -219,15 +229,16 @@ export function publishHandoff(project, expected, input) {
     }
     const requested = auditRequested({ ...input, review }, previousAudit.requested);
     const audit = assessAudit({ graph: current, bodyHash, report: review?.independent_audit, responses: review?.audit_responses, requested });
-    const blockers = [...projection.blockers, ...sourceSnapshotBlockers(project, projection), ...reviewBlockers(current, projection, body, review), ...audit.blockers];
+    const blockers = [...projection.blockers, ...sourceSnapshotBlockers(project, current.meta.root, sources), ...reviewBlockers(current, sources, body, review), ...audit.blockers];
     const ready = blockers.length === 0;
     const next = ready
       ? parseGraph(updateMeta(current, { status: 'handed-off', revision: current.meta.revision + 1, updated_at: now() }))
       : current;
-    const content = ready ? body : `> BLOCKED — this is a discovery draft, not approved input for Spec Kit.\n\n${body}`;
-    const header = { schema: 2, discovery_id: next.meta.id, graph_sha256: next.hash, revision: next.meta.revision,
+    const content = ready ? body : blockedBanner(language) + body;
+    // Schema 3: the body is rendered from the graph, so the render inputs and renderer version are kept to reproduce it.
+    const header = { schema: 3, renderer, discovery_id: next.meta.id, graph_sha256: next.hash, revision: next.meta.revision,
       status: ready ? 'ready' : 'blocked', generated_at: now(), body_sha256: sha256(content),
-      reviewed_graph_sha256: current.hash, covers: [...new Set(input.covers)].sort(), blockers, audit_requested: audit.requested, review: review ?? null };
+      reviewed_graph_sha256: current.hash, language, conclusions, blockers, audit_requested: audit.requested, review: review ?? null };
     header.metadata_sha256 = sha256(canonical(header));
     const metadata = JSON.stringify(header, null, 2) + '\n';
     if ([content, metadata].some(text => Buffer.byteLength(text) > 4 * 1024 * 1024)) throw new DiscoveryError('SIZE', 'Generated handoff files must each fit within 4 MiB.');
@@ -239,4 +250,13 @@ export function publishHandoff(project, expected, input) {
     return { file: p.handoff, metadata_file: p.handoffJson, status: header.status, graph_sha256: next.hash, blockers, independent_audit: audit.status,
       discovery_status: next.meta.status };
   });
+}
+
+// Readiness of the published handoff: current files, review, mechanical state and the
+// recorded local snapshots of every source the published draft shows.
+export function handoffStatus(project) {
+  const graph = readGraph(project), projection = projectGraph(graph), { summary, draft } = readPublicationState(project, graph);
+  const source_blockers = sourceSnapshotBlockers(project, graph.meta.root, draft?.sources ?? projection.sources);
+  const ready = Boolean(summary.fresh && summary.reviewed && summary.status === 'ready' && graph.meta.status === 'handed-off' && projection.readiness === 'ready' && !source_blockers.length);
+  return { ...summary, source_blockers, ready };
 }

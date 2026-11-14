@@ -124,7 +124,7 @@ test('inconsistent Position state is reconciled with exact backup and no guessed
 });
 
 test('Position reconciliation repairs a missing accepted status and preserves stale handoff detection', t => {
-  const dir = seed(t), g = readGraph(dir); publishHandoff(dir, g.hash, draft(projectGraph(g)));
+  const dir = seed(t), g = readGraph(dir); publishHandoff(dir, g.hash, draft(g));
   const published = readGraph(dir), damaged = editNode(published.text, 'P-010B', { status: 'proposed' });
   fs.writeFileSync(locations(dir).graph, damaged);
   reconcilePositionState(dir, sha256(damaged));

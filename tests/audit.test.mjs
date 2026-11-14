@@ -6,11 +6,12 @@ import { sha256, projectGraph } from '../src/graph.mjs';
 import { AUDITOR, auditTemplate } from '../src/audit.mjs';
 import { prepareAudit, previewHandoff, publishHandoff, patchGraph } from '../src/operations.mjs';
 import { readGraph, readHandoff, locations } from '../src/storage.mjs';
-import { seed, draft, editNode, discoveryFixture } from './helpers.mjs';
+import { seed, draft, revised, editNode, discoveryFixture } from './helpers.mjs';
+import { draftHandoff } from '../src/render.mjs';
 
 function auditedInput(graph) {
-  const input = { ...draft(projectGraph(graph)), audit_requested: true };
-  input.review.independent_audit = auditTemplate(graph, sha256(input.body));
+  const input = { ...draft(graph), audit_requested: true };
+  input.review.independent_audit = auditTemplate(graph, input.review.body_sha256);
   Object.assign(input.review.independent_audit, { result: 'pass', checks: input.review.checks.map(c => ({ ...c, note: 'Synthetic independent assessment: tests integrity, not model reasoning.' })),
     limits: ['Fictional fixture; supplied hash bindings and synthetic assessment, no model invocation.'] });
   return input;
@@ -24,24 +25,24 @@ function finding(input, { check = 'consistency', id = 'AUD-1' } = {}) {
 }
 
 test('explicit requested audit without report is blocked and ordinary reviewed handoff remains compatible', t => {
-  const dir = seed(t), graph = readGraph(dir), input = draft(projectGraph(graph));
+  const dir = seed(t), graph = readGraph(dir), input = draft(graph);
   input.audit_requested = true;
   const result = publishHandoff(dir, graph.hash, input);
   assert.equal(result.status, 'blocked'); assert.equal(result.independent_audit, 'missing');
   assert.equal(readGraph(dir).text, graph.text);
   assert.equal(readHandoff(dir, graph).reviewed, false);
   const ordinaryDir = seed(t), ordinaryGraph = readGraph(ordinaryDir);
-  assert.equal(publishHandoff(ordinaryDir, ordinaryGraph.hash, draft(projectGraph(ordinaryGraph))).status, 'ready');
+  assert.equal(publishHandoff(ordinaryDir, ordinaryGraph.hash, draft(ordinaryGraph)).status, 'ready');
   assert.equal(readHandoff(ordinaryDir, readGraph(ordinaryDir)).independent_audit, 'not-requested');
 });
 
 test('a recorded audit request survives omitted flags, new bodies and later graph revisions', t => {
-  const dir = seed(t), graph = readGraph(dir), input = { ...draft(projectGraph(graph)), audit_requested: true };
+  const dir = seed(t), graph = readGraph(dir), input = { ...draft(graph), audit_requested: true };
   assert.equal(publishHandoff(dir, graph.hash, input).status, 'blocked');
   delete input.audit_requested;
   assert.equal(previewHandoff(dir, input).audit_requested, true);
   assert.equal(publishHandoff(dir, graph.hash, input).status, 'blocked');
-  input.body += '\nRevised draft.\n'; input.review.body_sha256 = sha256(input.body);
+  Object.assign(input, revised(graph, input, 'Revised draft.'));
   assert.equal(publishHandoff(dir, graph.hash, input).status, 'blocked');
   patchGraph(dir, graph.hash, { meta: { focus: 'I-014' } }); const next = readGraph(dir);
   input.review.graph_sha256 = next.hash;
@@ -50,7 +51,7 @@ test('a recorded audit request survives omitted flags, new bodies and later grap
 });
 
 test('only an explicit mode change cancels a pending audit, while current findings still cannot be hidden', t => {
-  const dir = seed(t), graph = readGraph(dir), input = { ...draft(projectGraph(graph)), audit_requested: true };
+  const dir = seed(t), graph = readGraph(dir), input = { ...draft(graph), audit_requested: true };
   assert.equal(publishHandoff(dir, graph.hash, input).status, 'blocked');
   input.audit_requested = false;
   assert.equal(publishHandoff(dir, graph.hash, input).status, 'ready');
@@ -63,7 +64,7 @@ test('only an explicit mode change cancels a pending audit, while current findin
 });
 
 test('a manual body edit does not erase the audit request preserved in sealed metadata', t => {
-  const dir = seed(t), graph = readGraph(dir), input = { ...draft(projectGraph(graph)), audit_requested: true };
+  const dir = seed(t), graph = readGraph(dir), input = { ...draft(graph), audit_requested: true };
   assert.equal(publishHandoff(dir, graph.hash, input).status, 'blocked');
   fs.appendFileSync(locations(dir).handoff, '\nA manual body edit.\n');
   delete input.audit_requested;
@@ -73,7 +74,7 @@ test('a manual body edit does not erase the audit request preserved in sealed me
 });
 
 test('sealed JSON retains a pending audit when the Markdown file is missing', t => {
-  const dir = seed(t), graph = readGraph(dir), input = { ...draft(projectGraph(graph)), audit_requested: true };
+  const dir = seed(t), graph = readGraph(dir), input = { ...draft(graph), audit_requested: true };
   assert.equal(publishHandoff(dir, graph.hash, input).status, 'blocked');
   fs.unlinkSync(locations(dir).handoff);
   delete input.audit_requested;
@@ -98,16 +99,17 @@ test('responses to a carried current report remain explicit and never transfer t
 });
 
 test('requested preview supplies unfilled audit, and preparation snapshots actual normalized draft without changing state', t => {
-  const dir = seed(t), graph = readGraph(dir), input = { ...draft(projectGraph(graph)), audit_requested: true };
+  const dir = seed(t), graph = readGraph(dir), input = { ...draft(graph), audit_requested: true };
   const preview = previewHandoff(dir, input);
   assert.equal(preview.review.independent_audit.result, 'unchecked');
   assert.equal(preview.review.independent_audit.auditor, AUDITOR);
   assert.throws(() => prepareAudit(dir, '0'.repeat(64), input), e => e.code === 'CONFLICT');
-  const prepared = prepareAudit(dir, graph.hash, { ...input, body: `  ${input.body}\n ` });
+  const prepared = prepareAudit(dir, graph.hash, { conclusions: input.conclusions, audit_requested: true }), body = draftHandoff(graph, input).body;
   assert.equal(fs.readFileSync(prepared.graph, 'utf8'), graph.text);
-  assert.equal(fs.readFileSync(prepared.draft, 'utf8'), input.body);
+  assert.equal(fs.readFileSync(prepared.draft, 'utf8'), body);
   const manifest = JSON.parse(fs.readFileSync(prepared.manifest, 'utf8'));
-  assert.equal(manifest.graph_sha256, graph.hash); assert.equal(manifest.body_sha256, sha256(input.body));
+  assert.equal(manifest.graph_sha256, graph.hash); assert.equal(manifest.body_sha256, sha256(body)); assert.equal(manifest.body_sha256, input.review.body_sha256);
+  assert.deepEqual(manifest.conclusions, input.conclusions);
   assert.deepEqual(manifest.sources, projectGraph(graph).sources);
   assert.equal(manifest.audit_template.context, 'fresh');
   assert.equal(readGraph(dir).text, graph.text); assert.equal(fs.existsSync(locations(dir).handoff), false);
@@ -116,12 +118,13 @@ test('requested preview supplies unfilled audit, and preparation snapshots actua
 
 test('audit preparation checks coverage before creating task directories', t => {
   const dir = seed(t), graph = readGraph(dir), before = fs.readdirSync(locations(dir).state);
-  assert.throws(() => prepareAudit(dir, graph.hash, { body: 'Incomplete draft', covers: [] }), e => e.code === 'COVERAGE');
+  assert.throws(() => prepareAudit(dir, graph.hash, {}), e => e.code === 'COVERAGE');
+  assert.throws(() => prepareAudit(dir, graph.hash, { body: 'A hand-written draft', covers: [] }), e => e.code === 'INPUT');
   assert.deepEqual(fs.readdirSync(locations(dir).state), before);
 });
 
 test('audit input flag must be boolean', t => {
-  const dir = seed(t), input = draft(projectGraph(readGraph(dir)));
+  const dir = seed(t), input = draft(readGraph(dir));
   assert.throws(() => previewHandoff(dir, { ...input, audit_requested: 'false' }), e => e.code === 'INPUT');
 });
 
@@ -137,8 +140,7 @@ test('independent pass is sealed against the reviewed graph, not the later publi
 });
 
 test('a changed body requires a new independent auditor even after the main review is updated', t => {
-  const dir = seed(t), graph = readGraph(dir), input = auditedInput(graph);
-  input.body += '\nA revised scoped paragraph.\n'; input.review.body_sha256 = sha256(input.body);
+  const dir = seed(t), graph = readGraph(dir), input = revised(graph, auditedInput(graph), 'A revised scoped conclusion.');
   assert.throws(() => publishHandoff(dir, graph.hash, input), e => e.code === 'AUDIT');
   assert.equal(fs.existsSync(locations(dir).handoff), false); assert.equal(readGraph(dir).text, graph.text);
 });

@@ -1,6 +1,6 @@
 {
   "name": "requirements-discovery",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Nonlinear requirements discovery for Claude Code, backed by Argdown.",
   "homepage": "https://github.com/lovchinsky/requirements-discovery",

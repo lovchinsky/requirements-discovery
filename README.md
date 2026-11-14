@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/lovchinsky/requirements-discovery/actions/workflows/ci.yml/badge.svg)](https://github.com/lovchinsky/requirements-discovery/actions/workflows/ci.yml)
 
-Version **1.0.0**. A Claude Code plugin for nonlinear requirements discovery in an ordinary conversation. Requirements Engineering exposes gaps, IBIS organizes questions and alternatives, and Design Rationale keeps the reasons behind each decision. The result is a compact, reviewed input for a specification that you can hand to [Spec Kit](https://github.com/github/spec-kit).
+Version **1.1.0**. A Claude Code plugin for nonlinear requirements discovery in an ordinary conversation. Requirements Engineering exposes gaps, IBIS organizes questions and alternatives, and Design Rationale keeps the reasons behind each decision. The result is a reviewed input for a specification, rendered from that reasoning with its IDs and original wording, that you can hand to [Spec Kit](https://github.com/github/spec-kit).
 
 The plugin works with any domain. It keeps its state locally in `.requirements/current.argdown` and uses the official [Argdown](https://argdown.org) parser.
 
@@ -56,7 +56,7 @@ Then talk normally: explore facts, compare alternatives, change topic, return to
 | `/requirements-discovery:discover pause` | Pauses facilitation and keeps the state |
 | `/requirements-discovery:discover resume` | Reactivates the discovery; an existing handoff becomes stale |
 | `/requirements-discovery:discover new <goal>` | Archives the current state and starts a separate discovery |
-| `/requirements-discovery:handoff` | Reviews the state and writes `.requirements/handoff.md` and `.requirements/handoff.json` |
+| `/requirements-discovery:handoff` | Concludes the branches that were not chosen, reviews the state and writes `.requirements/handoff.md` and `.requirements/handoff.json` |
 | `/requirements-discovery:handoff audit` | Adds an independent read-only audit before publication |
 
 Both skills set `disable-model-invocation: true`: they run only when you invoke them.
@@ -66,6 +66,8 @@ Both skills set `disable-model-invocation: true`: they run only when you invoke 
 Factual questions are closed by verified Evidence or a verified Constraint. Product judgments become Decisions backed by your stated intent or a normative source. Positions show the current choice; the reasons and decision chains are kept as Design Rationale. Formal requirements, user stories and acceptance criteria belong to Spec Kit, not to discovery.
 
 ### Handoff
+
+The helper renders `handoff.md` from the graph rather than having Claude rewrite it. Current questions, decisions, chosen options, arguments, facts, constraints and assumptions appear verbatim with their IDs; earlier versions are listed by ID beside the current one. Branches that were not chosen (options you explored and left, or never explored because another one settled the question) are folded into short conclusions that Claude writes at handoff time and that list the folded node IDs. Every graph ID stays referenced, so a decision number in the handoff always leads back to its full reasoning in `current.argdown`. A retired node that the current state still relies on is shown with its text, because it blocks readiness. Labels are rendered in English or Ukrainian. Because nothing is paraphrased, a large discovery produces a long handoff.
 
 The handoff gets a semantic review of consistency, source authority, coverage, decision quality and readiness. Unresolved blockers leave it a draft marked `blocked`. A `ready` handoff is bound to the exact graph, text, review and recorded local source hashes; changing any of them makes it stale.
 
@@ -84,11 +86,11 @@ specs or code instead of silently changing the settled intent.
 | Path | Contents |
 | --- | --- |
 | `.requirements/current.argdown` | Questions, alternatives, facts, constraints, assumptions, arguments, decisions and consequences |
-| `.requirements/handoff.md` | The specification input as plain Markdown |
-| `.requirements/handoff.json` | Status, hashes, coverage, blockers and review metadata |
+| `.requirements/handoff.md` | The specification input, rendered from the graph as plain Markdown |
+| `.requirements/handoff.json` | Status, hashes, coverage, branch conclusions, blockers and review metadata |
 | `.requirements/archive/` | Preserved state from `new` and from recovery of damaged state |
 
-`handoff.md` and `handoff.json` form one publication; `handoff-status` checks that they match each other and the graph. All files are plain text: commit `.requirements/` to share the rationale with your team, or add it to `.gitignore`.
+`handoff.md` and `handoff.json` form one publication; `handoff-status` checks that they match each other and the graph, and reports whether the graph and recorded conclusions still render the same Markdown. All files are plain text: commit `.requirements/` to share the rationale with your team, or add it to `.gitignore`.
 
 The helpers validate the graph, preserve assertions and provenance, and write atomically under a writer lock with an expected SHA-256 check. Unsupported formats are never overwritten. See the [graph profile](plugins/requirements-discovery/references/graph-profile.md) for details.
 
@@ -103,6 +105,7 @@ You can run the helper yourself; `<plugin root>` is the installed plugin directo
 ```sh
 node "<plugin root>/dist/discovery.cjs" status --project /absolute/project
 node "<plugin root>/dist/discovery.cjs" handoff-status --project /absolute/project
+node "<plugin root>/dist/discovery.cjs" render --project /absolute/project <<< '{}'
 node "<plugin root>/dist/discovery.cjs" --help
 ```
 

@@ -17,6 +17,20 @@ export const KINDS = {
   review: ['confirmed', 'challenged'],
   consequence: ['current', 'challenged', 'superseded']
 };
+// What each status means for the current state: a settled commitment or answer, a
+// point that is still unsettled, or a retired record that only history retains.
+export const LIFECYCLE = {
+  issue: { open: 'unsettled', deferred: 'unsettled', resolved: 'settled', dropped: 'retired' },
+  position: { proposed: 'unsettled', accepted: 'settled', rejected: 'retired', withdrawn: 'retired' },
+  argument: { active: 'settled', retired: 'retired' },
+  evidence: { tentative: 'unsettled', verified: 'settled', contested: 'unsettled', stale: 'retired', superseded: 'retired' },
+  constraint: { proposed: 'unsettled', agreed: 'settled', verified: 'settled', challenged: 'unsettled', superseded: 'retired' },
+  assumption: { unverified: 'unsettled', validated: 'settled', invalidated: 'retired' },
+  decision: { accepted: 'settled', challenged: 'unsettled', superseded: 'retired', withdrawn: 'retired' },
+  review: { confirmed: 'settled', challenged: 'unsettled' },
+  consequence: { current: 'settled', challenged: 'unsettled', superseded: 'retired' },
+};
+export const lifecycle = n => LIFECYCLE[n?.kind]?.[n?.data.status];
 export const ID = /^[A-Z][A-Z0-9]*-[A-Za-z0-9][A-Za-z0-9_-]*$/;
 export const nonempty = x => typeof x === 'string' && x.trim().length > 0;
 const ids = x => Array.isArray(x) ? x : [];
@@ -275,13 +289,29 @@ export function dependencies(n) {
 export function historicalRefs(n) {
   return [...new Set([...dependencies(n), ...(n.data.based_on ?? []), ...(n.data.reaffirmed_by ?? []), ...(n.data.alternatives ?? []), ...(n.data.challenged_by ?? []), ...(n.data.resolution_history ?? [])])];
 }
-const CURRENT = { constraint: ['agreed', 'verified'], decision: ['accepted'], consequence: ['current'], assumption: ['unverified', 'validated'] };
-const BAD = new Set(['challenged', 'superseded', 'contested', 'stale', 'invalidated', 'withdrawn', 'retired', 'rejected', 'proposed', 'tentative', 'dropped']);
-const badReason = n => BAD.has(n.data.status) ? `${n.id} is ${n.data.status}.` : n.kind === 'issue' && ['open', 'deferred'].includes(n.data.status) ? `${n.id} is unresolved.` :
-  n.kind === 'assumption' && n.data.status === 'unverified' && n.data.blocking !== false ? `${n.id} is unverified.` : null;
+// Commitments of the target state: settled boundaries, choices and implications, and every recorded assumption.
+export const committed = n => ['constraint', 'decision', 'consequence'].includes(n.kind) ? lifecycle(n) === 'settled' : n.kind === 'assumption' && lifecycle(n) !== 'retired';
+const badReason = n => n.kind === 'issue' && lifecycle(n) === 'unsettled' ? `${n.id} is unresolved.` :
+  n.kind === 'assumption' && n.data.status === 'unverified' ? (n.data.blocking !== false ? `${n.id} is unverified.` : null) :
+  lifecycle(n) !== 'settled' ? `${n.id} is ${n.data.status}.` : null;
+
+const materialEvidence = n => n.kind === 'evidence' && ['existing', 'edge'].includes(n.data.handoff) && n.data.status !== 'superseded';
+// The operative state: commitments, material evidence and resolved questions, with everything
+// they causally depend on. Readiness and the handoff both build on this one closure.
+// No enumeration of dependency paths: the reachable graph is built once. O(V + E), stack safe.
+export function operativeClosure(graph) {
+  const roots = [...graph.nodes.values()].filter(n => committed(n) || materialEvidence(n) || (n.kind === 'issue' && n.data.status === 'resolved')).map(n => n.id);
+  const reachable = new Set(), edges = new Map(), reverse = new Map(), stack = [...roots];
+  while (stack.length) {
+    const id = stack.pop(); if (reachable.has(id)) continue;
+    reachable.add(id); const ids = dependencies(graph.nodes.get(id)); edges.set(id, ids);
+    for (const dep of ids) { if (!reverse.has(dep)) reverse.set(dep, []); reverse.get(dep).push(id); stack.push(dep); }
+  }
+  return { reachable, edges, reverse };
+}
 
 export function projectGraph(graph) {
-  const blockers = [], blockerIDs = new Set(), required = new Set([graph.meta.root]), selected = [], open = [], roots = new Set();
+  const blockers = [], blockerIDs = new Set(), required = new Set([graph.meta.root]), selected = [], open = [];
   const add = (id, reason) => { required.add(id); if (!blockerIDs.has(id)) { blockerIDs.add(id); blockers.push({ id, reason }); } };
   for (const n of graph.nodes.values()) {
     if (n.kind === 'issue' && ['open', 'deferred'].includes(n.data.status) && n.id !== graph.meta.root) {
@@ -289,18 +319,10 @@ export function projectGraph(graph) {
     }
     if (['decision', 'constraint', 'consequence'].includes(n.kind) && n.data.status === 'challenged') add(n.id, 'Challenged target state has not been resolved.');
     if (n.kind === 'assumption' && n.data.status === 'unverified' && n.data.blocking !== false) add(n.id, 'Unverified blocking assumption.');
-    const materialEvidence = n.kind === 'evidence' && ['existing', 'edge'].includes(n.data.handoff) && n.data.status !== 'superseded';
-    if (CURRENT[n.kind]?.includes(n.data.status) || materialEvidence) { selected.push(n); required.add(n.id); roots.add(n.id); }
-    if (n.kind === 'issue' && n.data.status === 'resolved') roots.add(n.id);
+    if (committed(n) || materialEvidence(n)) { selected.push(n); required.add(n.id); }
   }
-  // No enumeration of dependency paths: build the reachable graph once, then
-  // propagate failure once per node over reverse edges. O(V + E), stack safe.
-  const reachable = new Set(), edges = new Map(), reverse = new Map(), stack = [...roots];
-  while (stack.length) {
-    const id = stack.pop(); if (reachable.has(id)) continue;
-    reachable.add(id); const ids = dependencies(graph.nodes.get(id)); edges.set(id, ids);
-    for (const dep of ids) { if (!reverse.has(dep)) reverse.set(dep, []); reverse.get(dep).push(id); stack.push(dep); }
-  }
+  // Failure propagates once per node over the closure's reverse edges.
+  const { reachable, edges, reverse } = operativeClosure(graph);
   const failed = new Map(), queue = [];
   const fail = (id, reason) => { if (!failed.has(id)) { failed.set(id, reason); queue.push(id); } };
   for (const id of reachable) { const reason = badReason(graph.nodes.get(id)); if (reason) fail(id, reason); }

@@ -4,14 +4,14 @@ Use this contract only for an explicitly requested independent audit, including 
 
 ## Prepare and launch
 
-Distill the real draft first. Put `{body,covers,audit_requested:true}` in temporary JSON and run `handoff-preview`, then:
+Conclude the branches that were not chosen first. Put `{language,conclusions,audit_requested:true}` in temporary JSON and run `handoff-preview`, then:
 
 ```sh
 node "${CLAUDE_PLUGIN_ROOT}/dist/discovery.cjs" audit-prepare \
   --project "<root>" --expect "<preview graph_sha256>" < "<draft.json>"
 ```
 
-The helper creates a private `.requirements/.audit-<uuid>/` directory containing the exact graph bytes, normalized `draft.md` and `manifest.json`. It checks coverage and the expected graph hash under the writer lock without changing graph/handoff. The manifest supplies hashes, scope, project root, source inventory and an unfilled `audit_template`. These snapshots fix the review target; they do not prove prose quality or source currency. Keep the canonical graph and publication unchanged until the main agent has considered the report.
+The helper creates a private `.requirements/.audit-<uuid>/` directory containing the exact graph bytes, the rendered `draft.md` and `manifest.json`. It checks the conclusions and the expected graph hash under the writer lock without changing graph/handoff. The manifest supplies hashes, scope, project root, language, conclusions, source inventory and an unfilled `audit_template`. These snapshots fix the review target; they do not prove prose quality or source currency. Keep the canonical graph and publication unchanged until the main agent has considered the report.
 
 Launch the custom agent **`requirements-discovery:handoff-auditor` as a new agent**. Do not use a fork of the main thread, resume a previous agent, or pass the discovery conversation, your assessment, previous audit reports or an expected READY verdict. Give only the snapshot/manifest paths, project root, scope, the absolute paths of both contracts (`semantic-review.md` and this file) and necessary original user-intent excerpts or source snapshots. Do not paraphrase uncertain intent into agreement. Custom agents start with their own system prompt and basic host environment; project/user CLAUDE.md may still apply. Fresh context therefore means no discovery-thread history, not absence of all host instructions.
 
@@ -54,7 +54,7 @@ If the finding is false, record a separate `review.audit_responses` entry:
 
 ## Publication and cleanup
 
-Keep `audit_requested:true` on the draft. Fill the main semantic review independently and publish `{body,covers,audit_requested:true,review}`. Missing/unavailable audit or unresolved findings blocks publication; stale/malformed reports are rejected. A report supplied without the flag still participates in the gate, so disabling the flag cannot hide a known finding. The local helper does not call an LLM or verify model identity/context/tool execution; host isolation is enforced by the invocation and custom-agent definition. Typed receipts provide traceability, not attestation.
+Keep `audit_requested:true` on the draft. Fill the main semantic review independently and publish `{language,conclusions,audit_requested:true,review}`. Missing/unavailable audit or unresolved findings blocks publication; stale/malformed reports are rejected. A report supplied without the flag still participates in the gate, so disabling the flag cannot hide a known finding. The local helper does not call an LLM or verify model identity/context/tool execution; host isolation is enforced by the invocation and custom-agent definition. Typed receipts provide traceability, not attestation.
 
 A sealed prior publication records the audit request for this discovery. Omitting the flag on a retry, changing the body, or committing a graph revision does not silently cancel it. If the user explicitly changes the requested review mode, set `audit_requested:false`; never infer cancellation from unavailable tools or a desire to publish. A current prior report for the same graph/body is carried into publication even if omitted from new input; its findings cannot be hidden by changing the flag. Its prior responses carry only with that same report, never onto a newly supplied report. A changed artifact needs a new audit when requested.
 

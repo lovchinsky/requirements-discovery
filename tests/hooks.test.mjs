@@ -66,7 +66,7 @@ test('paused bootstrap stays inactive without reloading active behavior', t => {
 
 test('handed-off bootstrap grants no readiness and preserves graph and handoff', t => {
   const dir = seed(t), graph = readGraph(dir);
-  publishHandoff(dir,graph.hash,draft(projectGraph(graph)));
+  publishHandoff(dir,graph.hash,draft(graph));
   const before = [locations(dir).graph,locations(dir).handoff,locations(dir).handoffJson].map(file=>fs.readFileSync(file,'utf8'));
   const text = context(hookOutput(input(dir),PLUGIN,{}));
   assert.match(text,/handed-off; facilitation is inactive/);

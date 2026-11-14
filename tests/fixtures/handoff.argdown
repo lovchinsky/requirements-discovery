@@ -1,0 +1,106 @@
+===
+{
+  "discovery": {
+    "schema": 2,
+    "id": "RD-handoff-fixture",
+    "title": "Handoff rendering fixture",
+    "intent": "Exercise every class of the handoff projection.",
+    "status": "active",
+    "root": "I-001",
+    "focus": "I-010",
+    "revision": 1,
+    "created_at": "2026-11-14T00:00:00Z",
+    "updated_at": "2026-11-14T00:00:00Z",
+    "scope": [
+      "Primary navigation",
+      "1. A numbered-looking scope item",
+      "# A heading-looking scope item"
+    ]
+  }
+}
+===
+
+# Requirements discovery
+
+[I-001]: How should navigation work within the access model? #issue {"status":"open","parent":null}
+
+[I-010]: What defines primary navigation? #issue {"status":"resolved","parent":"I-001","resolved_by":"D-007","resolution_history":["D-006","D-007"]}
+
+[P-010A]: Workspaces define the root navigation hierarchy\. #position {"status":"rejected","issue":"I-010"}
+
+[P-010B]: Operational areas define navigation\; a workspace is a context switcher\. #position {"status":"accepted","issue":"I-010"}
+
+[E-021]: Users perform workflows that span workspaces\. #evidence {"status":"verified","issue":"I-010","handoff":"existing","sources":[{"kind":"user","ref":"Fixture scenario: daily cross-workspace work","authority":"intent"}]}
+
+[C-008]: Navigation must stay usable with thirty workspaces\. #constraint {"status":"agreed","handoff":"invariant","sources":[{"kind":"user","ref":"Fixture scale envelope","authority":"intent"}]}
+
+[C-012]: Navigation must never imply access to workspaces the user is not assigned to\. #constraint {"status":"verified","handoff":"invariant","sources":[{"kind":"spec","ref":"specs/access.md","authority":"normative","locator":"Access contract","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}
+
+[E-031]: A thirty\-item workspace list needs scrolling on every visit\. #evidence {"status":"verified","sources":[{"kind":"research","ref":"https://example.com/usability-probe","authority":"observed","accessed":"2026-10-05"}]}
+
+[I-030]: Would workspace roots stay usable at thirty workspaces? #issue {"status":"resolved","parent":"I-010","resolved_by":"E-031","resolution_history":["E-031"]}
+
+[D-006]: Use operations\-first navigation\. #decision {"status":"superseded","superseded_by":"D-007","resolves":["I-010"],"selected":["P-010B"],"basis":"user","based_on":["E-021"],"rationale":"First agreement.","sources":[{"kind":"user","ref":"Fixture first agreement","authority":"intent"}]}
+
+[D-007]: Use operations\-first navigation with a persistent workspace switcher in the header\. #decision {"status":"accepted","supersedes":"D-006","resolves":["I-010"],"selected":["P-010B"],"alternatives":["P-010A"],"basis":"user","based_on":["E-021","C-008","C-012","A-004"],"reaffirmed_by":["V-001","V-002"],"rationale":"Supports cross-workspace work at the stated scale.","sources":[{"kind":"user","ref":"Fixture agreement: \"switcher in the header\"","authority":"intent"}],"consequences":["The header shows the <workspace> context.","- a line that starts like a list item"],"terms":{"switcher":"The workspace selector in the header"},"rejection_reasons":{"P-010A":"Too many clicks."}}
+
+[V-001]: The choice survives the first scope change\. #review {"status":"confirmed","decision":"D-007","based_on":["E-021"],"rationale":"Still valid after the first change."}
+
+[V-002]: The choice still follows the current scope\. #review {"status":"confirmed","decision":"D-007","based_on":["C-008","C-012"],"rationale":"The current contracts suffice."}
+
+[Q-000]: An older implication of the first agreement\. #consequence {"status":"superseded","derives_from":"D-006"}
+
+[Q-001]: Cross\-workspace work needs a visible scope\. #consequence {"status":"current","derives_from":"D-007","handoff":"target"}
+
+[C-020]: Workspace colours should come from the design system\. #constraint {"status":"proposed","derives_from":"D-007"}
+
+[I-014]: What visual treatment marks the current workspace? #issue #mvp {"status":"deferred","parent":"I-010","blocking":false,"nonblocking_reason":"Visual styling can follow later.","defer_reason":"Waiting for the design system."}
+
+[P-014A]: A coloured badge using \-\-color\-\* tokens\, named \<domain\>\_\<verb\>\_\<object\>\, see \`badge\_color\`\. #position {"status":"proposed","issue":"I-014"}
+
+[P-014B]: A plain text label\. #position {"status":"rejected","issue":"I-014"}
+
+[I-020]: How is access assigned today? #issue {"status":"resolved","parent":"I-001","resolved_by":"E-030","resolution_history":["E-030"]}
+
+[E-030]: Access follows explicit assignments\; see \`assign\(\)\` and \[x\] the AT&T &amp\; flags\. #evidence {"status":"verified","sources":[{"kind":"code","ref":"src/access.ts","authority":"observed","locator":"assign()","revision":"abc123"}]}
+
+[P-020]: Access might follow roles\. #position {"status":"proposed","issue":"I-020"}
+
+[I-040]: Should workspaces have landing pages? #issue {"status":"dropped","parent":"I-010","reason":"Operations-first navigation removes the need for workspace landing pages."}
+
+[P-040]: One landing page per workspace\. #position {"status":"proposed","issue":"I-040"}
+
+[AS-001]: Most users switch workspace less than five times a day\. #assumption {"status":"unverified","blocking":false,"nonblocking_reason":"It only tunes the switcher.","validation":"Measure with ten users."}
+
+[AS-002]: Users know their workspace names\. #assumption {"status":"validated","blocking":false,"nonblocking_reason":"Confirmed in research.","validation":"Analytics review."}
+
+[AS-003]: Users never work across workspaces\. #assumption {"status":"invalidated","validation":"Interviews."}
+
+[E-050]: Thirty workspaces is the largest current tenant\. #evidence {"status":"verified","sources":[{"kind":"user","ref":"Fixture tenant list","authority":"intent"}]}
+
+<A-004>: A workspace hierarchy repeats navigation for cross\-workspace work\. #argument {"status":"active","issue":"I-010","based_on":["E-021","C-008"]}
+
+<A-017>: The switcher costs one extra click when changing workspace\. #argument {"status":"active","issue":"I-010"}
+
+<A-009>: An older wording of the click cost\. #argument {"status":"retired","issue":"I-010"}
+
+[P-010B]
+    + <A-004>
+
+[P-010B]
+    + [E-021]
+
+[P-010B]
+    - <A-017>
+
+[P-010B]
+    - <A-009>
+
+[P-010A]
+    - [E-031]
+
+<A-017>
+    _ [E-050]
+
+[P-014A]
+    >< [P-014B]

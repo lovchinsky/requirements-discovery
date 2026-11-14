@@ -59,7 +59,7 @@ An opening brace followed by a newline enters Argdown's YAML mode; pretty-printe
 
 Sources need `kind: code | spec | doc | research | user`, `ref`, and `authority: normative | observed | reference | intent`. Optional locators, symbols, revision, accessed date and lowercase SHA-256 help reinspection. Sources do not have a universal ranking: inspect their actual scope and authority. Observed code does not silently replace the desired normative contract. A local file source with a recorded `sha256` is rechecked against the file at `ref`, resolved from the project root, so such a `ref` is the file path alone; put line or anchor pointers in `locator`. A recorded node's sources cannot be changed afterwards, not even to add a `sha256`, so record it when you create the node.
 
-`handoff: existing | target | change | invariant | edge | scope | omit` is an editorial hint. `omit` cannot hide a current commitment or known blocker. An unresolved Issue/Assumption is blocking by default; `blocking:false` needs a substantive `nonblocking_reason`. Deferral alone never removes a blocker.
+`handoff: existing | target | change | invariant | edge | scope | omit` is an editorial hint; the first six label the rendered node, and `existing` or `edge` evidence is material, so a conclusion cannot fold it. `omit` adds no label and hides nothing: it cannot hide a current commitment or known blocker, and the handoff renders every current node. An unresolved Issue/Assumption is blocking by default; `blocking:false` needs a substantive `nonblocking_reason`. Deferral alone never removes a blocker.
 
 ## Fact answers and product choices
 
@@ -85,7 +85,7 @@ Every resolved Issue needs `resolution_history` containing its resolver. `patch`
 
 ## Discovery and specification
 
-Keep agreed behavior in its Decision, including the judgment, rationale and material implications. Constraints record genuine boundaries; separate Consequences record only material effects that need their own discussion/dependencies. Do not create one node for every feature sentence or duplicate Decision text. FR numbering, stories and acceptance criteria belong to Spec Kit, not to this graph or handoff.
+The handoff renders current nodes verbatim, with any further metadata, and folds branches that were not chosen into conclusions written at handoff; see `handoff-contract.md`. Keep agreed behavior in its Decision, including the judgment, rationale and material implications. Constraints record genuine boundaries; separate Consequences record only material effects that need their own discussion/dependencies. Do not create one node for every feature sentence or duplicate Decision text. FR numbering, stories and acceptance criteria belong to Spec Kit, not to this graph or handoff.
 
 ## Assertions and history
 

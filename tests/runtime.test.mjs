@@ -83,10 +83,8 @@ test('the installed plugin directory works offline end to end', async t => {
       input:JSON.stringify({add:[{id:'R-NOT-AUTHORABLE',kind:'requirement',text:'A duplicate specification.',data:{status:'agreed'}}]}),expectedStatus:1,expectedCode:'INPUT',
   });
   assert.equal(run(fresh,'check').graph_sha256,initialHash);
-  const blocked = run(fresh, 'handoff', {
-    body: '# Synthetic runtime test\n\n' + emptyProjection.required_coverage.map(id => '[' + id + ']').join(' '),
-    covers: emptyProjection.required_coverage,
-  }, ['--expect', initialHash]);
+  processResult(process.execPath, [cli, 'handoff', '--project', fresh, '--expect', initialHash], { input: JSON.stringify({ body: '# A hand-written draft', covers: ['I-001'] }), expectedStatus: 1, expectedCode: 'INPUT' });
+  const blocked = run(fresh, 'handoff', {}, ['--expect', initialHash]);
   assert.equal(blocked.status, 'blocked');
   assert.equal(blocked.discovery_status, 'active');
   assert.match(fs.readFileSync(path.join(fresh, '.requirements', 'handoff.md'), 'utf8'), /BLOCKED/);
@@ -98,11 +96,13 @@ test('the installed plugin directory works offline end to end', async t => {
     fs.copyFileSync(fixtureFile, path.join(fixture, '.requirements', 'current.argdown'));
     const projection = run(fixture, 'project');
     assert.equal(projection.readiness, 'ready');
-    const draft = {
-      body: '# Synthetic runtime test\n\nThis is not a semantic requirements review.\n\n' +
-        projection.required_coverage.map(id => '[' + id + ']').join(' '),
-      covers: projection.required_coverage,
-    };
+    const unconcluded = run(fixture, 'handoff-preview', {});
+    assert.equal(unconcluded.concluded, false);
+    assert.deepEqual(unconcluded.branches.unconcluded.map(group => [group.issue, group.nodes.map(n => n.id)]), [['I-010', ['P-010A']]]);
+    const draft = { language: 'uk', conclusions: [{ issue: 'I-010', covers: ['P-010A'], text: 'Synthetic runtime conclusion; not a semantic requirements review.' }] };
+    const rendered = processResult(process.execPath, [cli, 'render', '--project', fixture, '--expect', unconcluded.graph_sha256], { input: JSON.stringify(draft) });
+    processResult(process.execPath, [cli, 'render', '--project', fixture, '--expect', '0'.repeat(64)], { input: JSON.stringify(draft), expectedStatus: 1, expectedCode: 'CONFLICT' });
+    assert.match(rendered, /^# Resource workflow\n/); assert.match(rendered, /## Питання й рішення/);
     const withoutReview = run(fixture, 'handoff', draft, ['--expect', run(fixture, 'check').graph_sha256]);
     assert.equal(withoutReview.status,'blocked');
     const preview = run(fixture,'handoff-preview',draft);
@@ -117,10 +117,11 @@ test('the installed plugin directory works offline end to end', async t => {
     const metadata = JSON.parse(metadataBytes);
     assert.equal(published.file, handoffMarkdown);
     assert.equal(published.metadata_file, handoffJson);
-    assert.equal(fs.readFileSync(handoffMarkdown, 'utf8'), draft.body.trim() + '\n');
+    assert.equal(fs.readFileSync(handoffMarkdown, 'utf8'), rendered);
+    assert.deepEqual(metadata.conclusions, draft.conclusions);
     assert.equal(metadata.body_sha256, hash(fs.readFileSync(handoffMarkdown)));
     assert.equal(metadata.graph_sha256, published.graph_sha256);
-    assert.equal(run(fixture, 'handoff-status').ready, true);
+    const sealed = run(fixture, 'handoff-status'); assert.equal(sealed.ready, true); assert.equal(sealed.reproduction, 'reproducible');
     fs.unlinkSync(handoffJson);
     assert.equal(run(fixture, 'handoff-status', undefined, [], 1).ready, false);
     fs.writeFileSync(handoffJson, '{');
@@ -163,8 +164,9 @@ test('the installed plugin directory works offline end to end', async t => {
   });
 
   await t.test('a requested audit gates publication until a fresh report passes', () => {
-    const auditProjection=run(fixture,'project');
-    const auditDraft={body:'# Synthetic independent runtime review\n\n'+auditProjection.required_coverage.map(id=>'['+id+']').join(' '),covers:auditProjection.required_coverage,audit_requested:true};
+    // After the supersession the former choice and its argument are the branch not chosen; D-006 and Q-001 are history.
+    assert.deepEqual(run(fixture,'handoff-preview',{}).branches.unconcluded.map(group=>[group.issue,group.nodes.map(n=>n.id)]),[['I-010',['P-010B','A-004']]]);
+    const auditDraft={conclusions:[{issue:'I-010',covers:['P-010B','A-004'],text:'Synthetic runtime conclusion for the superseded navigation choice.'}],audit_requested:true};
     const auditPreview=run(fixture,'handoff-preview',auditDraft), auditReview=auditPreview.review;
     for(const c of auditReview.checks){c.result='pass';c.note='Synthetic publication mechanics only; not a semantic model assessment.';}
     for(const s of auditReview.sources){s.result='not-needed';s.note='Fictional runtime fixture source.';}

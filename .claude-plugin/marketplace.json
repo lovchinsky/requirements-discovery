@@ -6,7 +6,7 @@
     {
       "name": "requirements-discovery",
       "source": "./plugins/requirements-discovery",
-      "description": "Nonlinear requirements discovery and a compact Spec Kit handoff."
+      "description": "Nonlinear requirements discovery and a verbatim, traceable Spec Kit handoff."
     }
   ]
 }

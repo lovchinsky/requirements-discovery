@@ -5,8 +5,9 @@ import path from 'node:path';
 import { execFileSync, spawnSync, spawn } from 'node:child_process';
 import { parseGraph, projectGraph, sha256 } from '../src/graph.mjs';
 import { readGraph, readHandoff, locations, findProject } from '../src/storage.mjs';
+import { draftHandoff, RENDERER } from '../src/render.mjs';
 import { initDiscovery, applyGraph, patchGraph, setLifecycle, previewHandoff, prepareAudit, publishHandoff, archiveDiscovery, repairGraph, reconcilePositionState, status } from '../src/operations.mjs';
-import { ROOT, PLUGIN, seed, temporary, discoveryFixture, editNode, revise, draft } from './helpers.mjs';
+import { ROOT, PLUGIN, seed, temporary, discoveryFixture, editNode, revise, draft, revised } from './helpers.mjs';
 
 test('initialization never overwrites existing discovery', t => {
   const dir = temporary(t);
@@ -47,7 +48,7 @@ test('pause and resume preserve reasoning and invalidate old hashes', t => {
 test('ready handoff seals graph and body and deactivates discovery', t => {
   const dir = seed(t);
   const old = readGraph(dir);
-  const output = publishHandoff(dir, old.hash, draft(projectGraph(old)));
+  const output = publishHandoff(dir, old.hash, draft(old));
   const graph = readGraph(dir);
   assert.equal(output.status, 'ready');
   assert.equal(graph.meta.status, 'handed-off');
@@ -57,24 +58,28 @@ test('ready handoff seals graph and body and deactivates discovery', t => {
 });
 
 test('handoff publishes plain Markdown and standalone sealed JSON', t => {
-  const dir = seed(t), graph = readGraph(dir), input = draft(projectGraph(graph)), p = locations(dir);
+  const dir = seed(t), graph = readGraph(dir), input = draft(graph), p = locations(dir);
   const output = publishHandoff(dir, graph.hash, input);
   const body = fs.readFileSync(p.handoff, 'utf8'), metadata = JSON.parse(fs.readFileSync(p.handoffJson, 'utf8'));
-  assert.equal(body, input.body);
+  assert.equal(body, draftHandoff(graph, input).body);
+  assert.match(body, /^# Resource workflow\n/);
+  assert.ok(body.includes('[P-010A]') && !body.includes('Workspaces define the root navigation hierarchy.'));
   assert.equal(output.file, p.handoff);
   assert.equal(output.metadata_file, p.handoffJson);
   assert.equal(metadata.status, 'ready');
   assert.equal(metadata.body_sha256, sha256(body));
   assert.equal(metadata.graph_sha256, readGraph(dir).hash);
   assert.deepEqual(metadata.review, input.review);
-  assert.deepEqual(metadata.covers, [...input.covers].sort());
+  assert.equal(metadata.schema, 3); assert.equal(metadata.renderer, RENDERER); assert.equal(Object.hasOwn(metadata, 'covers'), false);
+  assert.deepEqual(metadata.conclusions, input.conclusions);
+  assert.equal(metadata.language, 'en');
   assert.equal(Object.hasOwn(metadata, 'body'), false);
 });
 
 test('missing or malformed handoff files never pass freshness or CLI readiness', t => {
   for (const damage of ['missing-markdown', 'missing-json', 'malformed-json']) {
     const dir = seed(t), graph = readGraph(dir), p = locations(dir);
-    publishHandoff(dir, graph.hash, draft(projectGraph(graph)));
+    publishHandoff(dir, graph.hash, draft(graph));
     if (damage === 'malformed-json') fs.writeFileSync(p.handoffJson, '{');
     else fs.unlinkSync(damage === 'missing-json' ? p.handoffJson : p.handoff);
     const before = fs.readdirSync(p.state);
@@ -88,12 +93,9 @@ test('missing or malformed handoff files never pass freshness or CLI readiness',
 });
 
 test('Markdown and JSON from different publications cannot form a fresh pair', t => {
-  const first = seed(t), second = seed(t), graph = readGraph(first), input = draft(projectGraph(graph));
+  const first = seed(t), second = seed(t), graph = readGraph(first), input = draft(graph);
   publishHandoff(first, graph.hash, input);
-  const revised = draft(projectGraph(readGraph(second)));
-  revised.body += '\nA separate reviewed paragraph.\n';
-  revised.review.body_sha256 = sha256(revised.body);
-  publishHandoff(second, readGraph(second).hash, revised);
+  publishHandoff(second, readGraph(second).hash, revised(readGraph(second), draft(readGraph(second))));
   fs.copyFileSync(locations(second).handoffJson, locations(first).handoffJson);
   assert.equal(readHandoff(first, readGraph(first)).fresh, false);
 });
@@ -102,11 +104,9 @@ test('interrupted metadata or graph writes leave a stale handoff and release the
   const rename = fs.renameSync;
   for (const target of ['handoffJson', 'graph']) {
     const dir = seed(t), p = locations(dir), original = readGraph(dir);
-    publishHandoff(dir, original.hash, draft(projectGraph(original)));
+    publishHandoff(dir, original.hash, draft(original));
     setLifecycle(dir, readGraph(dir).hash, 'active');
-    const graph = readGraph(dir), input = draft(projectGraph(graph));
-    input.body += '\nA newly reviewed paragraph.\n';
-    input.review.body_sha256 = sha256(input.body);
+    const graph = readGraph(dir), input = revised(graph, draft(graph), 'A newly reviewed conclusion.');
     const mock = t.mock.method(fs, 'renameSync', (from, to) => {
       if (to === p[target]) throw Object.assign(new Error('Simulated write failure'), { code: 'EIO' });
       return rename(from, to);
@@ -120,17 +120,18 @@ test('interrupted metadata or graph writes leave a stale handoff and release the
   }
 });
 
-test('handoff requires meaningful review coverage markers for commitments and open issues', t => {
+test('handoff renders the body itself and needs a conclusion for every branch that was not chosen', t => {
   const dir = seed(t);
   const graph = readGraph(dir);
-  assert.throws(() => publishHandoff(dir, graph.hash, {body:'# Input\n[I-001]',covers:['I-001']}), e => e.code === 'COVERAGE');
+  assert.throws(() => publishHandoff(dir, graph.hash, {body:'# Input\n[I-001]',covers:['I-001']}), e => e.code === 'INPUT');
+  assert.throws(() => publishHandoff(dir, graph.hash, {}), e => e.code === 'COVERAGE' && e.details[0].issue === 'I-010' && e.details[0].nodes.some(n => n.id === 'P-010A'));
   assert.equal(fs.existsSync(locations(dir).handoff), false);
 });
 
 test('blocked handoff remains a draft and keeps active discovery', t => {
   const dir = seed(t, editNode(discoveryFixture, 'I-014', {blocking:true}));
   const graph = readGraph(dir);
-  const output = publishHandoff(dir, graph.hash, draft(projectGraph(graph)));
+  const output = publishHandoff(dir, graph.hash, draft(graph));
   assert.equal(output.status, 'blocked');
   assert.equal(readGraph(dir).meta.status, 'active');
   assert.match(fs.readFileSync(locations(dir).handoff, 'utf8'), /BLOCKED/);
@@ -141,12 +142,12 @@ test('blocked handoff remains a draft and keeps active discovery', t => {
 test('a manual body edit or later graph update makes handoff stale', t => {
   const dir = seed(t);
   let graph = readGraph(dir);
-  publishHandoff(dir, graph.hash, draft(projectGraph(graph)));
+  publishHandoff(dir, graph.hash, draft(graph));
   graph = readGraph(dir);
   fs.appendFileSync(locations(dir).handoff, 'Manual edit.\n');
   assert.equal(readHandoff(dir, graph).fresh, false);
   const other = seed(t);
-  publishHandoff(other, readGraph(other).hash, draft(projectGraph(readGraph(other))));
+  publishHandoff(other, readGraph(other).hash, draft(readGraph(other)));
   assert.equal(readHandoff(other, readGraph(other)).fresh, true);
   setLifecycle(other, readGraph(other).hash, 'active');
   assert.equal(readHandoff(other, readGraph(other)).fresh, false);
@@ -154,10 +155,10 @@ test('a manual body edit or later graph update makes handoff stale', t => {
 
 test('a handed-off discovery keeps its ready handoff until it is explicitly resumed', t => {
   const dir = seed(t), p = locations(dir);
-  publishHandoff(dir, readGraph(dir).hash, draft(projectGraph(readGraph(dir))));
+  publishHandoff(dir, readGraph(dir).hash, draft(readGraph(dir)));
   const handedOff = readGraph(dir), body = fs.readFileSync(p.handoff, 'utf8'), metadata = fs.readFileSync(p.handoffJson, 'utf8');
   assert.equal(handedOff.meta.status, 'handed-off');
-  const again = draft(projectGraph(handedOff));
+  const again = draft(handedOff);
   assert.throws(() => previewHandoff(dir, again), e => e.code === 'LIFECYCLE');
   assert.throws(() => prepareAudit(dir, handedOff.hash, again), e => e.code === 'LIFECYCLE');
   assert.throws(() => publishHandoff(dir, handedOff.hash, again), e => e.code === 'LIFECYCLE');
@@ -169,7 +170,7 @@ test('a handed-off discovery keeps its ready handoff until it is explicitly resu
 test('explicit new discovery archives complete current artifacts', t => {
   const dir = seed(t);
   let graph = readGraph(dir);
-  publishHandoff(dir, graph.hash, draft(projectGraph(graph)));
+  publishHandoff(dir, graph.hash, draft(graph));
   graph = readGraph(dir);
   const oldHandoff = fs.readFileSync(locations(dir).handoff, 'utf8');
   const oldMetadata = fs.readFileSync(locations(dir).handoffJson, 'utf8');
@@ -230,7 +231,7 @@ test('orphan JSON is reported and cannot be overwritten by initialization', t =>
 
 test('archive preserves current artifacts if handoff JSON cannot be copied', t => {
   const dir = seed(t), p = locations(dir), graph = readGraph(dir);
-  publishHandoff(dir, graph.hash, draft(projectGraph(graph)));
+  publishHandoff(dir, graph.hash, draft(graph));
   fs.unlinkSync(p.handoffJson);
   fs.mkdirSync(p.handoffJson);
   const originals = [p.graph, p.handoff].map(file => fs.readFileSync(file, 'utf8'));
@@ -259,7 +260,7 @@ test('repair cannot reset discovery identity or bypass revision and lifecycle ru
 
 test('repair retains an explicitly requested independent audit after body recovery', t => {
   const dir = seed(t), current = readGraph(dir), p = locations(dir);
-  const input = {...draft(projectGraph(current)),audit_requested:true};
+  const input = {...draft(current),audit_requested:true};
   assert.equal(publishHandoff(dir,current.hash,input).status,'blocked');
   const publication = fs.readFileSync(p.handoff,'utf8');
   const metadata = fs.readFileSync(p.handoffJson,'utf8');
@@ -269,7 +270,7 @@ test('repair retains an explicitly requested independent audit after body recove
   assert.equal(fs.readFileSync(p.handoff,'utf8'),publication);
   assert.equal(fs.readFileSync(p.handoffJson,'utf8'),metadata);
   const repaired = readGraph(dir);
-  const result = publishHandoff(dir,repaired.hash,draft(projectGraph(repaired)));
+  const result = publishHandoff(dir,repaired.hash,draft(repaired));
   assert.equal(result.status,'blocked');
   assert.equal(result.independent_audit,'missing');
 });

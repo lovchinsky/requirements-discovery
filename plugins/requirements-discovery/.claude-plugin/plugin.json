@@ -1,6 +1,6 @@
 {
   "name": "requirements-discovery",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Requirements Engineering in a natural, nonlinear conversation, with IBIS branching, durable design rationale and a Spec Kit handoff.",
   "author": {
     "name": "Serhiy Lovchinsky",

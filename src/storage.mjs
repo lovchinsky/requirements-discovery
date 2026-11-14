@@ -1,11 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { DiscoveryError, parseGraph, sha256, canonical } from './graph.mjs';
-import { assertReal, locations, readFile } from './io.mjs';
+import { DiscoveryError, parseGraph, sha256, canonical, isObject } from './graph.mjs';
+import { assertReal, locations, readFile, readBytes } from './io.mjs';
 export { findProject, locations, ensureDirectory, readFile, readBytes, decodeText, readHeader, frontMatterHeader, stdinText } from './io.mjs';
 import { REVIEW_AXES } from './review.mjs';
 import { assessAudit } from './audit.mjs';
+import { draftHandoff, blockedBanner, RENDERER } from './render.mjs';
 
 export function readGraph(project) {
   return parseGraph(readFile(locations(project).graph));
@@ -52,39 +53,84 @@ export function atomicWrite(file, text) {
   }
 }
 
-function readPublicationMetadata(project) {
-  return JSON.parse(readFile(locations(project).handoffJson, 4 * 1024 * 1024));
+// Every consumer reads the publication once, through its state: absent (no metadata),
+// unreadable, unsealed (not schema 2/3 or a broken seal), foreign (another discovery) or sealed.
+// Schema 2 is a prose publication of earlier versions; schema 3 is rendered from the graph.
+export function readPublication(project, graph) {
+  const p = locations(project), markdown = fs.existsSync(p.handoff);
+  if (!fs.existsSync(p.handoffJson)) return { state: 'absent', markdown };
+  let data;
+  try { data = JSON.parse(readFile(p.handoffJson, 4 * 1024 * 1024)); }
+  catch (error) {
+    if (!(error instanceof DiscoveryError || error instanceof SyntaxError || error.code)) throw error;
+    return { state: 'unreadable', markdown, reason: error instanceof DiscoveryError ? error.message : 'Handoff metadata is not readable JSON.' };
+  }
+  const { metadata_sha256, ...metadata } = isObject(data) ? data : {};
+  if (!isObject(data) || ![2, 3].includes(data.schema) || metadata_sha256 !== sha256(canonical(metadata))) return { state: 'unsealed', markdown, data };
+  if (data.discovery_id !== graph.meta.id) return { state: 'foreign', markdown, data };
+  let body;
+  try { body = markdown ? readBytes(p.handoff, 4 * 1024 * 1024) : undefined; }
+  catch (error) { if (!(error instanceof DiscoveryError || error.code)) throw error; }
+  return { state: 'sealed', markdown, data, body };
 }
 
 export function readAuditState(project, graph, bodyHash) {
-  if (!fs.existsSync(locations(project).handoffJson)) return { requested: false };
+  const publication = readPublication(project, graph);
+  if (publication.state === 'absent') return { requested: false };
+  // A request remains part of this discovery even after a reasoning revision
+  // makes the old publication stale. A damaged, unsealed or foreign publication
+  // cannot prove that no audit was requested, so it keeps the gate closed; only
+  // an explicit audit_requested:false cancels it.
+  if (publication.state !== 'sealed') return { requested: true };
+  const { data } = publication, report = data.review?.independent_audit;
+  const requested = data.audit_requested === true || report !== undefined || data.review?.audit_responses !== undefined;
+  if (report?.graph_sha256 === graph.hash && report?.body_sha256 === bodyHash) return { requested, report, responses: data.review.audit_responses };
+  return { requested };
+}
+
+// The render inputs of the last sealed rendered publication of this discovery, offered for reuse.
+export function readPreviousInputs(project, graph) {
+  const publication = readPublication(project, graph);
+  if (publication.state !== 'sealed' || publication.data.schema !== 3) return undefined;
+  return { language: publication.data.language, conclusions: publication.data.conclusions };
+}
+
+// Whether the graph and the recorded render inputs still produce the published Markdown bytes.
+function reproduction(graph, { data, body }) {
+  if (data.schema === 2) return { reproduction: 'legacy-prose' };
+  if (body === undefined) return { reproduction: 'unreadable' };
+  let draft;
+  try { draft = draftHandoff(graph, { language: data.language, conclusions: data.conclusions }); }
+  catch (error) {
+    if (!(error instanceof DiscoveryError && ['INPUT', 'CONCLUSION', 'COVERAGE'].includes(error.code))) throw error;
+    return { reproduction: 'not-renderable', reproduction_detail: error.message };
+  }
+  const expected = data.status === 'ready' ? draft.body : blockedBanner(draft.language) + draft.body;
+  const reproduction = sha256(expected) === sha256(body) ? 'reproducible' : data.renderer !== RENDERER ? 'renderer-changed' : 'differs';
+  return { reproduction, draft };
+}
+
+export function readPublicationState(project, graph) {
+  const publication = readPublication(project, graph);
+  if (publication.state === 'absent') return { summary: publication.markdown ? { exists: true, fresh: false, reason: 'Handoff metadata is missing.' } : { exists: false, fresh: false } };
+  if (publication.state === 'unreadable') return { summary: { exists: true, fresh: false, reason: publication.reason } };
+  const { data, body } = publication, sealed = publication.state === 'sealed';
+  const fresh = sealed && body !== undefined && data.graph_sha256 === graph.hash && data.body_sha256 === sha256(body);
+  const reason = fresh ? undefined : !sealed ? `The publication metadata is ${publication.state}.` : body === undefined ? 'The handoff Markdown is missing or unreadable.' : 'The graph, handoff body or publication metadata changed since publication.';
+  let audit;
   try {
-    const data = readPublicationMetadata(project), { metadata_sha256, ...metadata } = data;
-    // A request remains part of this discovery even after a reasoning revision
-    // makes the old publication stale. A damaged, unsealed or foreign publication
-    // cannot prove that no audit was requested, so it keeps the gate closed; only
-    // an explicit audit_requested:false cancels it.
-    if (data.schema !== 2 || data.discovery_id !== graph.meta.id || metadata_sha256 !== sha256(canonical(metadata))) return { requested: true };
-    const requested = data.audit_requested === true || data.review?.independent_audit !== undefined || data.review?.audit_responses !== undefined;
-    const report = data.review?.independent_audit;
-    if (report?.graph_sha256 === graph.hash && report?.body_sha256 === bodyHash) return { requested, report, responses: data.review.audit_responses };
-    return { requested };
-  } catch { return { requested: true }; }
+    if (data.audit_requested !== undefined && typeof data.audit_requested !== 'boolean') throw new DiscoveryError('AUDIT', 'Invalid audit request flag.');
+    audit = assessAudit({ graph, graphHash: data.reviewed_graph_sha256, bodyHash: data.review?.body_sha256, report: data.review?.independent_audit, responses: data.review?.audit_responses, requested: data.audit_requested === true });
+  } catch (error) {
+    if (!(error instanceof DiscoveryError)) throw error;
+    return { summary: { exists: true, fresh: false, schema: data.schema, reason: error.message } };
+  }
+  const reviewed = Boolean(data.review && data.review.graph_sha256 === data.reviewed_graph_sha256 && (data.status !== 'ready' || data.review.body_sha256 === data.body_sha256) && Array.isArray(data.review.checks) && data.review.checks.length === REVIEW_AXES.length && REVIEW_AXES.every(axis => data.review.checks.some(x => x?.check === axis && x.result === 'pass')) && Array.isArray(data.review.sources) && data.review.sources.every(x => ['checked', 'not-needed'].includes(x?.result)) && (!audit.requested || audit.audited));
+  const { draft, ...replay } = sealed ? reproduction(graph, publication) : { reproduction: 'unsealed' };
+  return { draft, summary: { exists: true, fresh, schema: data.schema, status: data.status, reviewed, audit_requested: audit.requested, audited: audit.audited, independent_audit: audit.status,
+    graph_sha256: data.graph_sha256, reproducible: replay.reproduction === 'reproducible', ...replay, reason } };
 }
 
 export function readHandoff(project, graph) {
-  const p = locations(project);
-  if (!fs.existsSync(p.handoff) && !fs.existsSync(p.handoffJson)) return { exists: false, fresh: false };
-  try {
-    const data = readPublicationMetadata(project), body = readFile(p.handoff, 4 * 1024 * 1024);
-    const { metadata_sha256, ...metadata } = data;
-    const fresh = data.schema === 2 && metadata_sha256 === sha256(canonical(metadata)) && data.discovery_id === graph.meta.id && data.graph_sha256 === graph.hash && data.body_sha256 === sha256(body);
-    if (data.audit_requested !== undefined && typeof data.audit_requested !== 'boolean') throw new DiscoveryError('AUDIT', 'Invalid audit request flag.');
-    const audit = assessAudit({ graph, graphHash: data.reviewed_graph_sha256, bodyHash: data.review?.body_sha256,
-      report: data.review?.independent_audit, responses: data.review?.audit_responses, requested: data.audit_requested === true });
-    const reviewed = Boolean(data.review && data.review.graph_sha256 === data.reviewed_graph_sha256 && (data.status !== 'ready' || data.review.body_sha256 === data.body_sha256) && Array.isArray(data.review.checks) && data.review.checks.length === REVIEW_AXES.length && REVIEW_AXES.every(axis => data.review.checks.some(x => x?.check === axis && x.result === 'pass')) && Array.isArray(data.review.sources) && data.review.sources.every(x => ['checked', 'not-needed'].includes(x?.result)) && (!audit.requested || audit.audited));
-    return { exists: true, fresh, status: data.status, reviewed, audit_requested: audit.requested, audited: audit.audited, independent_audit: audit.status, graph_sha256: data.graph_sha256, reason: fresh ? undefined : 'The graph, handoff body or publication metadata changed since publication.' };
-  } catch (error) {
-    return { exists: true, fresh: false, reason: error instanceof DiscoveryError ? error.message : 'Handoff files are missing or unreadable.' };
-  }
+  return readPublicationState(project, graph).summary;
 }
