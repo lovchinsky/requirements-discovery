@@ -297,13 +297,14 @@ const badReason = n => n.kind === 'issue' && lifecycle(n) === 'unsettled' ? `${n
 
 const materialEvidence = n => n.kind === 'evidence' && ['existing', 'edge'].includes(n.data.handoff) && n.data.status !== 'superseded';
 // The operative state: commitments, material evidence and resolved questions, with everything
-// they causally depend on. Readiness and the handoff both build on this one closure.
+// they causally depend on. Readiness and the handoff both build on this one closure; the handoff
+// excludes the nodes its conclusions fold, which no shown node depends on.
 // No enumeration of dependency paths: the reachable graph is built once. O(V + E), stack safe.
-export function operativeClosure(graph) {
+export function operativeClosure(graph, excluded = new Set()) {
   const roots = [...graph.nodes.values()].filter(n => committed(n) || materialEvidence(n) || (n.kind === 'issue' && n.data.status === 'resolved')).map(n => n.id);
   const reachable = new Set(), edges = new Map(), reverse = new Map(), stack = [...roots];
   while (stack.length) {
-    const id = stack.pop(); if (reachable.has(id)) continue;
+    const id = stack.pop(); if (reachable.has(id) || excluded.has(id)) continue;
     reachable.add(id); const ids = dependencies(graph.nodes.get(id)); edges.set(id, ids);
     for (const dep of ids) { if (!reverse.has(dep)) reverse.set(dep, []); reverse.get(dep).push(id); stack.push(dep); }
   }

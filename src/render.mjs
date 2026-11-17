@@ -7,7 +7,7 @@ import { DiscoveryError, ID, KINDS, isObject, nonempty, canonical, dependencies,
 // - history: earlier versions, resolutions, reviews and consequences, listed by ID beside their record;
 // - not chosen: everything else, folded into conclusions that the agent writes at handoff.
 // Bump RENDERER whenever the same graph, language and conclusions would render different bytes.
-export const RENDERER = 1;
+export const RENDERER = 2;
 export const MAX_CONCLUSION = 2000;
 
 const ids = x => Array.isArray(x) ? x : [];
@@ -70,8 +70,9 @@ function classify(graph, ix, folded = new Set()) {
     const n = nodes.get(id);
     if (n.kind === 'decision' && ids(n.data.reaffirmed_by).length) for (const x of [id, ...ids(n.data.selected)]) reaffirmedBy.set(x, id);
   }
-  // Retained: what the operative state relies on although it is not current itself.
-  const retained = new Set([...ix.operative].filter(id => !current.has(id) && !folded.has(id)));
+  // Retained: what the operative state of this view relies on although it is not current itself.
+  const operative = folded.size ? operativeClosure(graph, folded).reachable : ix.operative;
+  const retained = new Set([...operative].filter(id => !current.has(id) && !folded.has(id)));
   const shown = id => current.has(id) || retained.has(id), history = new Map(), recordOf = id => shown(id) ? id : history.get(id)?.target;
   const assign = (id, target, role) => nodes.has(id) && target && !shown(id) && !folded.has(id) && !history.has(id) && Boolean(history.set(id, { target, role }));
   for (let changed = true; changed;) {
@@ -132,6 +133,8 @@ function anchorer(graph, ix, cls, tree) {
 const foldable = (graph, required, n) => !required.has(n.id) && (['argument', 'evidence'].includes(n.kind) || (n.kind === 'constraint' && lifecycle(n) === 'unsettled') ||
   (n.kind === 'issue' && n.id !== graph.meta.root && st(n) === 'resolved' && graph.nodes.get(n.data.resolved_by)?.kind !== 'decision'));
 const neighbours = (ix, n) => [...ix.requirers(n.id), ...ix.partners(n.id), ...(n.kind === 'issue' ? [...ix.children(n.id), ...ix.attached(n.id)] : [])];
+const linksOf = (ix, n) => [...neighbours(ix, n), ...requires(n), n.data.issue, n.data.parent].filter(other => other && other !== n.id);
+const under = (nodes, id, anchor) => { for (let p = id; p && nodes.has(p); p = nodes.get(p).data.parent) if (p === anchor) return true; return false; };
 
 export const LANGUAGES = ['en', 'uk'];
 export function handoffInput(input) {
@@ -178,12 +181,11 @@ function settle(graph, ix, required, conclusions) {
       : `${other}: belongs to folded ${n.id}; cover it in the same branch or keep ${n.id}.`);
   }
   // A conclusion folds its own branch: questions under its issue, and nodes linked to the rest of what it covers.
-  const under = (id, anchor) => { for (let p = id; p && nodes.has(p); p = nodes.get(p).data.parent) if (p === anchor) return true; return false; };
   conclusions.forEach((c, i) => {
     const members = new Set(c.covers);
     for (const id of c.covers) if (folded.has(id)) {
-      const n = nodes.get(id), links = [...neighbours(ix, n), ...requires(n), n.data.issue, n.data.parent].filter(other => other && other !== id);
-      if (n.kind === 'issue' && !under(id, c.issue)) errors.push(`${id}: not under ${c.issue}; a conclusion folds the questions of its own branch.`);
+      const n = nodes.get(id), links = linksOf(ix, n);
+      if (n.kind === 'issue' && !under(nodes, id, c.issue)) errors.push(`${id}: not under ${c.issue}; a conclusion folds the questions of its own branch.`);
       else if (!links.some(other => members.has(other))) errors.push(`${id}: not linked to the other nodes of conclusion ${i + 1}; fold only what belongs to its branch.`);
     }
   });
@@ -203,36 +205,66 @@ function settle(graph, ix, required, conclusions) {
   return { base, cls, tree, anchor: anchorer(graph, ix, cls, tree), coveredBy, folded, selfConcluded, uncovered };
 }
 
+const nodeInfo = (graph, id) => { const n = graph.nodes.get(id); return { id, kind: n.kind, status: st(n), text: normal(n.text).slice(0, 200) }; };
 function groups(graph, ix, settled, list) {
   const byIssue = new Map();
   for (const id of list) { const issue = settled.anchor(id); if (!byIssue.has(issue)) byIssue.set(issue, []); byIssue.get(issue).push(id); }
   return [...byIssue].sort(([a], [b]) => settled.tree.position.get(a) - settled.tree.position.get(b))
-    .map(([issue, members]) => ({ issue, nodes: ix.byOrder(members).map(id => { const n = graph.nodes.get(id); return { id, kind: n.kind, status: st(n), text: normal(n.text).slice(0, 200) }; }) }));
+    .map(([issue, members]) => ({ issue, nodes: ix.byOrder(members).map(id => nodeInfo(graph, id)) }));
 }
 
-// The largest set of foldable current nodes that bears only on branches that were not chosen,
-// derived from the same closure that settle enforces and validated by it.
-function foldCandidates(graph, ix, required, settled) {
-  const { nodes } = graph, { base } = settled, shownOutside = (id, set) => base.shown(id) && !set.has(id);
-  const candidates = new Set([...base.current].filter(id => foldable(graph, required, nodes.get(id))));
+// Suggested folds: groups of current nodes that bear only on branches that were not chosen. Each
+// group folds as a whole into the conclusion of the branch it bears on and changes the class of no
+// other node, so following a suggestion as named is accepted by settle and leaves nothing to cover.
+function foldCandidates(graph, ix, required, settled, conclusions) {
+  const { nodes } = graph, { cls } = settled;
+  const candidates = new Set([...cls.current].filter(id => foldable(graph, required, nodes.get(id))));
   for (let changed = true; changed;) {
     changed = false;
-    for (const id of candidates) if (neighbours(ix, nodes.get(id)).some(other => shownOutside(other, candidates))) { candidates.delete(id); changed = true; }
+    for (const id of candidates) if (neighbours(ix, nodes.get(id)).some(other => cls.shown(other) && !candidates.has(other))) { candidates.delete(id); changed = true; }
   }
-  // Keep only what bears on a not-chosen node, plus what must fold with it.
-  const reached = new Set(), queue = [...candidates].filter(id => ix.partners(id).some(other => base.pruned.has(other)));
+  // A not-chosen node belongs to the conclusion that covers it, or to the one still to be written
+  // under its anchor; a dropped question concludes its own nodes, so they belong to no conclusion.
+  const uncovered = new Set(settled.uncovered);
+  const conclusionOf = id => settled.coveredBy.has(id) ? `covers:${settled.coveredBy.get(id)}` : uncovered.has(id) ? `anchor:${settled.anchor(id)}` : undefined;
+  const branchOf = id => settled.coveredBy.has(id) ? conclusions[settled.coveredBy.get(id)].issue : uncovered.has(id) ? settled.anchor(id) : undefined;
+  const bearsOn = id => ix.partners(id).filter(other => cls.pruned.has(other) && conclusionOf(other));
+  const anchors = new Set([...conclusions.map(c => c.issue), ...settled.uncovered.map(settled.anchor)]);
+  const reached = new Set(), queue = [...candidates].filter(id => bearsOn(id).length);
   while (queue.length) {
     const id = queue.pop();
     if (reached.has(id)) continue;
     reached.add(id);
     const n = nodes.get(id);
-    queue.push(...[...ix.requirers(id), ...(n.kind === 'issue' ? [...ix.children(id), ...ix.attached(id)] : [])].filter(other => candidates.has(other)));
-    queue.push(...requires(n).filter(dep => candidates.has(dep) && ix.requirers(dep).every(other => reached.has(other) || queue.includes(other))));
+    queue.push(...neighbours(ix, n).filter(other => candidates.has(other)));
+    queue.push(...requires(n).filter(dep => candidates.has(dep) && ix.requirers(dep).filter(cls.shown).every(other => reached.has(other) || queue.includes(other))));
   }
-  const picks = ix.byOrder([...reached]);
-  try { if (picks.length) settle(graph, ix, required, [{ issue: graph.meta.root, covers: [...settled.uncovered, ...picks], text: 'Validation of suggested folds.' }]); }
-  catch (error) { throw new DiscoveryError('INTERNAL', 'Suggested folds do not pass their own validation.', error.details ?? [String(error.message)]); }
-  return picks;
+  // Groups are what must fold together: nodes joined by links that hold in both directions.
+  const mutual = (a, b) => linksOf(ix, nodes.get(b)).includes(a);
+  const components = [], seen = new Set();
+  for (const start of ix.byOrder([...reached])) if (!seen.has(start)) {
+    const members = [];
+    for (const stack = [start]; stack.length;) {
+      const id = stack.pop();
+      if (seen.has(id)) continue;
+      seen.add(id); members.push(id);
+      stack.push(...linksOf(ix, nodes.get(id)).filter(other => reached.has(other) && !seen.has(other) && mutual(id, other)));
+    }
+    components.push(ix.byOrder(members));
+  }
+  const classOf = c => id => c.current.has(id) ? 'current' : c.retained.has(id) ? 'retained' : c.history.has(id) ? 'history' : 'pruned';
+  const before = classOf(cls), folded = new Set(settled.folded), suggestions = [];
+  for (const group of components) {
+    const questions = group.filter(id => nodes.get(id).kind === 'issue');
+    if (questions.some(id => anchors.has(id))) continue;
+    const target = ix.byOrder(group.flatMap(bearsOn)).find(t => questions.every(q => under(nodes, q, branchOf(t))));
+    if (!target) continue;
+    const trial = new Set([...folded, ...group]), after = classOf(classify(graph, ix, trial));
+    if ([...nodes.keys()].some(id => !trial.has(id) && after(id) !== before(id))) continue;
+    for (const id of group) folded.add(id);
+    suggestions.push({ issue: branchOf(target), bears_on: ix.byOrder(group.flatMap(bearsOn).filter(t => conclusionOf(t) === conclusionOf(target))), nodes: group.map(id => nodeInfo(graph, id)) });
+  }
+  return suggestions.sort((a, b) => settled.tree.position.get(a.issue) - settled.tree.position.get(b.issue) || ix.order.get(a.nodes[0].id) - ix.order.get(b.nodes[0].id));
 }
 
 const PUNCTUATION = /[!-/:-@[-`{-~]/, WORD = /[\p{L}\p{N}]/u, ENTITY = /^&(?:#[0-9]{1,7}|#[xX][0-9A-Fa-f]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});/;
@@ -511,5 +543,5 @@ export function draftHandoff(graph, input, { strict = true } = {}) {
   // The review accounts for the sources of every node shown with its text, and of every node the projection relies on.
   const shown = [...settled.cls.current, ...settled.cls.retained].filter(id => !settled.folded.has(id));
   const sources = [...new Map([...projection.sources, ...shown.flatMap(id => ids(graph.nodes.get(id).data.sources))].map(s => [canonical(s), s])).values()];
-  return { body, language, conclusions, renderer: RENDERER, uncovered: unconcluded, fold_candidates: foldCandidates(graph, ix, required, settled), sources };
+  return { body, language, conclusions, renderer: RENDERER, uncovered: unconcluded, fold_candidates: foldCandidates(graph, ix, required, settled, conclusions), sources };
 }

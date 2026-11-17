@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/lovchinsky/requirements-discovery/actions/workflows/ci.yml/badge.svg)](https://github.com/lovchinsky/requirements-discovery/actions/workflows/ci.yml)
 
-Version **1.1.0**. A Claude Code plugin for nonlinear requirements discovery in an ordinary conversation. Requirements Engineering exposes gaps, IBIS organizes questions and alternatives, and Design Rationale keeps the reasons behind each decision. The result is a reviewed input for a specification, rendered from that reasoning with its IDs and original wording, that you can hand to [Spec Kit](https://github.com/github/spec-kit).
+Version **1.1.1**. A Claude Code plugin for nonlinear requirements discovery in an ordinary conversation. Requirements Engineering exposes gaps, IBIS organizes questions and alternatives, and Design Rationale keeps the reasons behind each decision. The result is a reviewed input for a specification, rendered from that reasoning with its IDs and original wording, that you can hand to [Spec Kit](https://github.com/github/spec-kit).
 
 The plugin works with any domain. It keeps its state locally in `.requirements/current.argdown` and uses the official [Argdown](https://argdown.org) parser.
 

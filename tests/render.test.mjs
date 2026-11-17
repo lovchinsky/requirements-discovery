@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { parseGraph, serializeGraph, sha256, canonical, KINDS } from '../src/graph.mjs';
+import { parseGraph, serializeGraph, sha256, canonical, KINDS, operativeClosure } from '../src/graph.mjs';
 import { classifyGraph, draftHandoff, RENDERER } from '../src/render.mjs';
 import { readGraph, readHandoff, locations } from '../src/storage.mjs';
 import { publishHandoff, previewHandoff, prepareAudit, setLifecycle, patchGraph, handoffStatus } from '../src/operations.mjs';
@@ -32,7 +32,7 @@ test('the rendered handoff matches its golden files byte for byte', () => {
   // A deliberate change of the output must update these files and bump RENDERER.
   const graph = parseGraph(rich);
   for (const language of ['en', 'uk']) assert.equal(draftHandoff(graph, { language, conclusions: RICH }).body, fs.readFileSync(path.join(fixtures, `handoff.${language}.md`), 'utf8'), language);
-  assert.equal(RENDERER, 1);
+  assert.equal(RENDERER, 2);
 });
 
 test('rendering depends only on the graph meaning, the language and the conclusions', () => {
@@ -152,12 +152,97 @@ test('a question settled by a current decision cannot be folded, even as a leaf 
   rejected(parseGraph(text), [{ issue: 'I-010', covers: ['P-010A', 'I-050'], text: 'Folded.' }], /I-050: a current issue \(resolved\) is a commitment/);
 });
 
-test('folding suggestions are closed branches that the helper itself accepts', () => {
+// Shapes around the rich fixture: facts and reasoning that bear on branches that were not chosen.
+const ev = (id, text, extra = '') => `[${id}]: ${text} #evidence {"status":"verified",${extra}${user}}`;
+const SHAPES = {
+  'S1 a fact answering a question of another branch': { add: ['[I-033]: Does the switcher need a role filter? #issue {"status":"resolved","parent":"I-010","resolved_by":"E-098","resolution_history":["E-098"]}', ev('E-098', 'Roles are not modelled anywhere in the product.'), '[P-020]\n    - [E-098]'], rich: [] },
+  'S2 a fact on an option of a dropped question': { add: [ev('E-097', 'No workspace has a landing page today.'), '[P-040]\n    - [E-097]'], rich: [] },
+  'S3 a fact on a concluded option': { add: [ev('E-099', 'A second probe found the same scrolling.'), '[P-010A]\n    - [E-099]'], rich: [['I-010', ['P-010A'], ['E-099']]] },
+  'S4 a fact supporting that fact': { add: [ev('E-099', 'A second probe found the same scrolling.'), ev('E-100', 'The probe used thirty workspaces.'), '[P-010A]\n    - [E-099]', '[E-099]\n    + [E-100]'], rich: [['I-010', ['P-010A'], ['E-099', 'E-100']]] },
+  'S5 an argument attacking that fact': { add: [ev('E-099', 'A second probe found the same scrolling.'), '<A-100>: The probe used an old build. #argument {"status":"active","issue":"I-010"}', '[P-010A]\n    - [E-099]', '[E-099]\n    - <A-100>'], rich: [['I-010', ['P-010A'], ['E-099', 'A-100']]] },
+  'S6 a fact rejecting the option of the question it answers': { add: ['[I-034]: Do users reorder workspaces? #issue {"status":"resolved","parent":"I-010","resolved_by":"E-096","resolution_history":["E-096"]}', ev('E-096', 'Users never reorder workspaces.'), '[P-034]: Manual ordering. #position {"status":"proposed","issue":"I-034"}', '[P-034]\n    - [E-096]'], rich: [] },
+  'S7 a fact shared by two branches': { add: [ev('E-095', 'Labels and roles both tested poorly.'), '[P-014B]\n    - [E-095]', '[P-020]\n    - [E-095]'], rich: [['I-014', ['P-014B'], ['E-095']]] },
+  'S8 a question whose answer rests on reasoning tied to the chosen side': { add: ['[I-035]: Is the workspace list paginated? #issue {"status":"resolved","parent":"I-010","resolved_by":"E-094","resolution_history":["E-094"]}', ev('E-094', 'The list is not paginated.', '"based_on":["A-101"],'), ev('E-093', 'The switcher shows recent workspaces first.'), '<A-101>: Pagination would break the recent-first order. #argument {"status":"active","issue":"I-035"}', '[P-010A]\n    - [E-094]', '<A-101>\n    + [E-093]', '[P-010B]\n    + [E-093]'], rich: [] },
+  'S9 a fact with an earlier version': { add: [ev('E-090', 'An older probe.', '"superseded_by":"E-099",').replace('"status":"verified"', '"status":"superseded"'), ev('E-099', 'A second probe found the same scrolling.'), '[P-010A]\n    - [E-099]'], rich: [] },
+};
+const shaped = shape => parseGraph(`${rich}\n${SHAPES[shape].add.join('\n\n')}\n`);
+// Conclusions for every branch: the given ones, plus one per branch the shape leaves unconcluded.
+const concludeAll = (graph, conclusions) => [...structuredClone(conclusions), ...draftHandoff(graph, { conclusions }, { strict: false }).uncovered.map(g => ({ issue: g.issue, covers: g.nodes.map(n => n.id), text: 'Concluded for the test.' }))];
+// Folds every suggestion as named: its nodes go into the conclusion that covers bears_on.
+const follow = (conclusions, suggestions) => {
+  const next = structuredClone(conclusions);
+  for (const s of suggestions) next.find(c => s.bears_on.every(id => c.covers.includes(id))).covers.push(...s.nodes.map(n => n.id));
+  return next;
+};
+const brief = suggestions => suggestions.map(s => [s.issue, s.bears_on, s.nodes.map(n => n.id)]);
+
+test('folding suggestions are groups that fold into the conclusion of the branch they bear on', () => {
   const graph = parseGraph(rich), { fold_candidates, uncovered } = draftHandoff(graph, {}, { strict: false });
-  assert.deepEqual(fold_candidates, ['E-031', 'I-030']);
+  assert.deepEqual(fold_candidates, [{ issue: 'I-010', bears_on: ['P-010A'], nodes: [
+    { id: 'E-031', kind: 'evidence', status: 'verified', text: 'A thirty-item workspace list needs scrolling on every visit.' },
+    { id: 'I-030', kind: 'issue', status: 'resolved', text: 'Would workspace roots stay usable at thirty workspaces?' }] }]);
   assert.deepEqual(uncovered.map(g => [g.issue, g.nodes.map(n => n.id)]), [['I-001', ['AS-003']], ['I-010', ['P-010A', 'A-009']], ['I-014', ['P-014B']], ['I-020', ['P-020']]]);
   assert.equal(uncovered[1].nodes[0].text, 'Workspaces define the root navigation hierarchy.');
-  assert.doesNotThrow(() => draftHandoff(graph, { conclusions: uncovered.map(g => ({ issue: g.issue, covers: [...g.nodes.map(n => n.id), ...(g.issue === 'I-010' ? fold_candidates : [])], text: 'Suggested.' })) }));
+  assert.deepEqual(draftHandoff(graph, { conclusions: RICH }).fold_candidates, [], 'nothing folded already is suggested again');
+});
+
+test('every suggestion, followed as named, is accepted and changes nothing else, on every shape', () => {
+  for (const [shape, { rich: expected }] of Object.entries(SHAPES)) for (const given of [[], RICH]) {
+    const graph = shaped(shape), conclusions = concludeAll(graph, given), before = draftHandoff(graph, { conclusions });
+    if (given === RICH) assert.deepEqual(brief(before.fold_candidates), expected, `${shape}: suggestions after RICH`);
+    const after = draftHandoff(graph, { conclusions: follow(conclusions, before.fold_candidates) });
+    assert.deepEqual(after.fold_candidates, [], `${shape}: nothing is left to suggest`);
+    assert.equal(after.body.includes('## Outside the current state'), before.body.includes('## Outside the current state'), `${shape}: the retained section is unchanged`);
+  }
+});
+
+test('nodes the agent keeps visible beside concluded branches render, whether or not they are suggested', () => {
+  for (const shape of Object.keys(SHAPES)) {
+    const graph = shaped(shape);
+    assert.doesNotThrow(() => draftHandoff(graph, { conclusions: concludeAll(graph, RICH) }), shape);
+    assert.doesNotThrow(() => draftHandoff(graph, {}, { strict: false }), shape);
+  }
+});
+
+test('a fold removes the folded nodes from the operative state, so nothing is retained without a referrer', () => {
+  // E-031 rests on an argument against the rejected option; folding E-031 leaves that argument to its branch.
+  const withBasis = rich.replace('"status":"verified","sources":[{"kind":"research"', '"status":"verified","based_on":["A-120"],"sources":[{"kind":"research"') + '\n<A-120>: Thirty roots would need their own search. #argument {"status":"active","issue":"I-010"}\n\n[P-010A]\n    - <A-120>\n';
+  const graph = parseGraph(withBasis);
+  assert.equal(classifyGraph(graph).current.has('A-120'), true, 'before folding, E-031 keeps it current');
+  assert.throws(() => draftHandoff(graph, { conclusions: RICH }), e => e.code === 'COVERAGE' && e.details[0].issue === 'I-010' && e.details[0].nodes.some(n => n.id === 'A-120'));
+  const { body } = draftHandoff(graph, { conclusions: RICH.map(c => c.issue === 'I-010' ? { ...c, covers: [...c.covers, 'A-120'] } : c) });
+  assert.ok(!body.includes('## Outside the current state'));
+  // Attached to a dropped question, the same argument joins that question's own branch line.
+  const dropped = parseGraph(withBasis.replace('<A-120>: Thirty roots would need their own search. #argument {"status":"active","issue":"I-010"}', '<A-120>: Thirty roots would need their own search. #argument {"status":"active","issue":"I-040"}').replace('[P-010A]\n    - <A-120>', '[P-040]\n    - <A-120>'));
+  assert.match(draftHandoff(dropped, { conclusions: RICH }).body, /- \*\*\[I-040\]\*\* Should workspaces have landing pages\? _\(dropped\)_ — dropped: [^\n]*\n {2}- Branch: \[P-040\], \[A-120\]/);
+});
+
+test('the operative closure skips excluded nodes and what only they reach, and keeps what others still reach', () => {
+  const graph = parseGraph(rich), all = operativeClosure(graph).reachable, folded = operativeClosure(graph, new Set(['I-030', 'E-031'])).reachable;
+  assert.ok(all.has('I-030') && all.has('E-031'));
+  assert.ok(!folded.has('I-030') && !folded.has('E-031'));
+  assert.deepEqual([...all].filter(id => !folded.has(id)).sort(), ['E-031', 'I-030']);
+});
+
+test('handoff-status reports a changed graph without failing on suggestions', t => {
+  for (const shape of ['S1 a fact answering a question of another branch', 'S2 a fact on an option of a dropped question']) {
+    // The fixture's sha256 names no real file; without it the publication is ready.
+    const dir = seed(t, rich.replace(/,"sha256":"a{64}"/, '')), patch = SHAPES[shape].add;
+    assert.equal(publishHandoff(dir, readGraph(dir).hash, draft(readGraph(dir), RICH)).status, 'ready');
+    setLifecycle(dir, readGraph(dir).hash, 'active');
+    const text = fs.readFileSync(locations(dir).graph, 'utf8') + `\n${patch.join('\n\n')}\n`;
+    fs.writeFileSync(locations(dir).graph, text.replace(/"revision": (\d+)/, (m, r) => `"revision": ${Number(r) + 1}`));
+    assert.equal(handoffStatus(dir).reproduction, 'differs', shape);
+  }
+});
+
+// Real discoveries hold private data, so they are checked only on request:
+// REQUIREMENTS_CORPUS=/abs/project1:/abs/project2 node --test tests/render.test.mjs
+test('on the real corpus, previews never fail and every suggestion followed as named is accepted', { skip: !process.env.REQUIREMENTS_CORPUS }, () => {
+  for (const project of process.env.REQUIREMENTS_CORPUS.split(':')) {
+    const graph = readGraph(project), conclusions = concludeAll(graph, []), { fold_candidates } = draftHandoff(graph, { conclusions });
+    assert.deepEqual(draftHandoff(graph, { conclusions: follow(conclusions, fold_candidates) }).fold_candidates, [], project);
+  }
 });
 
 test('an argument that presupposes an option that was left belongs to that branch', () => {
